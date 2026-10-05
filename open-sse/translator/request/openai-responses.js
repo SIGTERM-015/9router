@@ -387,11 +387,12 @@ export function openaiToOpenAIResponsesRequest(model, body, stream, credentials)
       // Assistant messages with only tool_calls have content: null — skip the
       // message block in that case; the tool_calls are pushed separately below.
       if (content.length > 0) {
-        result.input.push({
-          type: RESPONSES_ITEM.MESSAGE,
-          role: msg.role,
-          content
-        });
+        const item = { type: RESPONSES_ITEM.MESSAGE, role: msg.role, content };
+        // Text emitted alongside tool calls is a preamble, not a final answer.
+        // Without phase=commentary, Muse Spark reads replayed preambles as finished
+        // turns and starts ending its own turn after narrating (no tool call).
+        if (msg.role === ROLE.ASSISTANT && msg.tool_calls?.length) item.phase = "commentary";
+        result.input.push(item);
       }
     }
 
