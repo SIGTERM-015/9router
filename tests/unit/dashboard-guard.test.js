@@ -53,7 +53,7 @@ function localRequest(pathname, headers = {}) {
   return request(pathname, { "x-9r-peer-token": PEER_TOKEN, "x-9r-real-ip": "127.0.0.1", ...headers });
 }
 
-describe("dashboard guard CLIProxyAPI compat", () => {
+describe("dashboard guard quota APIs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     process.env.NINEROUTER_PEER_TOKEN = PEER_TOKEN;
@@ -79,6 +79,11 @@ describe("dashboard guard CLIProxyAPI compat", () => {
     const response = await proxy(request("/v0/management/auth-files", { authorization: "Bearer nope" }));
 
     expect(response.status).toBe(401);
+  });
+
+  it("gates the quota snapshot the same way", async () => {
+    expect((await proxy(localRequest("/v0/quota", { host: "localhost:20128" }))).status).toBe(401);
+    expect(await proxy(request("/v0/quota", { authorization: "Bearer valid-key" }))).toBe(mocks.nextResponse);
   });
 });
 

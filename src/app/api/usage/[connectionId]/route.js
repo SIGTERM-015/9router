@@ -128,6 +128,64 @@ export async function refreshAndUpdateCredentials(connection, force = false, pro
 }
 
 /**
+ * Fetch a connection's provider quota: refreshes OAuth credentials first and retries
+ * once with a forced refresh when the provider reports an expired token.
+ * @returns {Promise<{ usage: object } | { error: string, status: number }>}
+ */
+export async function readConnectionUsage(connection, { force = false } = {}) {
+  // Allow OAuth connections, plus whitelisted apikey providers (glm/minimax/kiro/...)
+  // Kiro's headless api-key flow persists authType "api_key" (underscore) while
+  // generic apikey providers persist "apikey" — accept both spellings here.
+  const isOAuth = connection.authType === "oauth";
+  const isApikeyAuth =
+    connection.authType === "apikey" || connection.authType === "api_key";
+  const isApikeyEligible =
+    isApikeyAuth && USAGE_APIKEY_PROVIDERS.includes(connection.provider);
+
+  if (!isOAuth && !isApikeyEligible) {
+    return { usage: { message: "Usage not available for this connection" } };
+  }
+
+  // Resolve connection proxy config; force strictProxy=false so quota/refresh fall back to direct on failure
+  const proxyConfig = await resolveConnectionProxyConfig(connection.providerSpecificData);
+  const proxyOptions = {
+    connectionProxyEnabled: proxyConfig.connectionProxyEnabled === true,
+    connectionProxyUrl: proxyConfig.connectionProxyUrl || "",
+    connectionNoProxy: proxyConfig.connectionNoProxy || "",
+    vercelRelayUrl: proxyConfig.vercelRelayUrl || "",
+    strictProxy: false,
+  };
+
+  // Refresh credentials only for OAuth connections (apikey has no token refresh)
+  if (isOAuth) {
+    try {
+      const result = await refreshAndUpdateCredentials(connection, false, proxyOptions);
+      connection = result.connection;
+    } catch (refreshError) {
+      console.error("[Usage API] Credential refresh failed:", refreshError);
+      return { error: `Credential refresh failed: ${refreshError.message}`, status: 401 };
+    }
+  }
+
+  // Fetch usage from provider API
+  let usage = await getUsageForProvider(connection, proxyOptions, { force });
+
+  // If provider returned an auth-expired message instead of throwing,
+  // force-refresh token and retry once (OAuth only)
+  if (isOAuth && isAuthExpiredMessage(usage) && connection.refreshToken) {
+    try {
+      const retryResult = await refreshAndUpdateCredentials(connection, true, proxyOptions);
+      connection = retryResult.connection;
+      usage = await getUsageForProvider(connection, proxyOptions, { force });
+    } catch (retryError) {
+      console.warn(`[Usage] ${connection.provider}: force refresh failed: ${retryError.message}`);
+    }
+  }
+
+  return { usage };
+}
+
+/**
  * GET /api/usage/[connectionId] - Get usage data for a specific connection
  */
 export async function GET(request, { params }) {
@@ -136,65 +194,15 @@ export async function GET(request, { params }) {
     const { connectionId } = await params;
     const force = new URL(request.url).searchParams.get("force") === "1";
 
-
     // Get connection from database
     connection = await getProviderConnectionById(connectionId);
     if (!connection) {
       return Response.json({ error: "Connection not found" }, { status: 404 });
     }
 
-    // Allow OAuth connections, plus whitelisted apikey providers (glm/minimax/kiro/...)
-    // Kiro's headless api-key flow persists authType "api_key" (underscore) while
-    // generic apikey providers persist "apikey" — accept both spellings here.
-    const isOAuth = connection.authType === "oauth";
-    const isApikeyAuth =
-      connection.authType === "apikey" || connection.authType === "api_key";
-    const isApikeyEligible =
-      isApikeyAuth && USAGE_APIKEY_PROVIDERS.includes(connection.provider);
-
-    if (!isOAuth && !isApikeyEligible) {
-      return Response.json({ message: "Usage not available for this connection" });
-    }
-
-    // Resolve connection proxy config; force strictProxy=false so quota/refresh fall back to direct on failure
-    const proxyConfig = await resolveConnectionProxyConfig(connection.providerSpecificData);
-    const proxyOptions = {
-      connectionProxyEnabled: proxyConfig.connectionProxyEnabled === true,
-      connectionProxyUrl: proxyConfig.connectionProxyUrl || "",
-      connectionNoProxy: proxyConfig.connectionNoProxy || "",
-      vercelRelayUrl: proxyConfig.vercelRelayUrl || "",
-      strictProxy: false,
-    };
-
-    // Refresh credentials only for OAuth connections (apikey has no token refresh)
-    if (isOAuth) {
-      try {
-        const result = await refreshAndUpdateCredentials(connection, false, proxyOptions);
-        connection = result.connection;
-      } catch (refreshError) {
-        console.error("[Usage API] Credential refresh failed:", refreshError);
-        return Response.json({
-          error: `Credential refresh failed: ${refreshError.message}`
-        }, { status: 401 });
-      }
-    }
-
-    // Fetch usage from provider API
-    let usage = await getUsageForProvider(connection, proxyOptions, { force });
-
-    // If provider returned an auth-expired message instead of throwing,
-    // force-refresh token and retry once (OAuth only)
-    if (isOAuth && isAuthExpiredMessage(usage) && connection.refreshToken) {
-      try {
-        const retryResult = await refreshAndUpdateCredentials(connection, true, proxyOptions);
-        connection = retryResult.connection;
-        usage = await getUsageForProvider(connection, proxyOptions, { force });
-      } catch (retryError) {
-        console.warn(`[Usage] ${connection.provider}: force refresh failed: ${retryError.message}`);
-      }
-    }
-
-    return Response.json(usage);
+    const result = await readConnectionUsage(connection, { force });
+    if (result.error) return Response.json({ error: result.error }, { status: result.status });
+    return Response.json(result.usage);
   } catch (error) {
     const provider = connection?.provider ?? "unknown";
     console.warn(`[Usage] ${provider}: ${error.message}`);
