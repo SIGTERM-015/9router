@@ -53,6 +53,35 @@ function localRequest(pathname, headers = {}) {
   return request(pathname, { "x-9r-peer-token": PEER_TOKEN, "x-9r-real-ip": "127.0.0.1", ...headers });
 }
 
+describe("dashboard guard CLIProxyAPI compat", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.NINEROUTER_PEER_TOKEN = PEER_TOKEN;
+    mocks.getSettings.mockResolvedValue({ requireLogin: false });
+    mocks.validateApiKey.mockImplementation(async (key) => key === "valid-key");
+    mocks.getConsistentMachineId.mockResolvedValue("cli-token");
+    mocks.verifyDashboardAuthToken.mockResolvedValue(false);
+  });
+
+  it("requires an API key even from loopback with login disabled", async () => {
+    const response = await proxy(localRequest("/v0/management/auth-files", { host: "localhost:20128" }));
+
+    expect(response.status).toBe(401);
+  });
+
+  it("allows a valid API key as Bearer token", async () => {
+    const response = await proxy(request("/v0/management/api-call", { authorization: "Bearer valid-key" }));
+
+    expect(response).toBe(mocks.nextResponse);
+  });
+
+  it("rejects an invalid API key", async () => {
+    const response = await proxy(request("/v0/management/auth-files", { authorization: "Bearer nope" }));
+
+    expect(response.status).toBe(401);
+  });
+});
+
 describe("dashboard guard public LLM API access", () => {
   beforeEach(() => {
     vi.clearAllMocks();

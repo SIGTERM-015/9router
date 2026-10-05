@@ -37,6 +37,10 @@ const PUBLIC_API_PATHS = [
 // Keep root-level rewrites here too: middleware runs before Next.js rewrites.
 const PUBLIC_PREFIXES = ["/v1", "/v1beta", "/api/v1", "/api/v1beta", "/codex", "/responses"];
 
+// CLIProxyAPI-compatible management API (src/lib/cliproxyCompat.js). Exposes quota reads
+// with account tokens, so it always requires a 9router API key — loopback included.
+const CLIPROXY_COMPAT_PREFIX = "/v0/management";
+
 // Always require JWT token regardless of requireLogin setting
 const ALWAYS_PROTECTED = [
   "/api/shutdown",
@@ -219,6 +223,11 @@ export async function proxy(request) {
     if (await hasValidCliToken(request) || await hasValidToken(request))
       return NextResponse.next();
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (pathname === CLIPROXY_COMPAT_PREFIX || pathname.startsWith(`${CLIPROXY_COMPAT_PREFIX}/`)) {
+    if (await hasValidApiKey(request)) return NextResponse.next();
+    return NextResponse.json({ error: "API key required" }, { status: 401 });
   }
 
   if (isPublicLlmApi(pathname)) {
