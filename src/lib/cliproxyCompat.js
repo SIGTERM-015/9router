@@ -13,6 +13,13 @@ import { refreshAndUpdateCredentials } from "@/app/api/usage/[connectionId]/rout
 
 const TOKEN_PLACEHOLDER = "$TOKEN$";
 
+// Provider quota endpoints rate-limit hard (Anthropic's answers 429 for minutes), and
+// every polling client would otherwise add its own upstream call. GET reads are shared
+// per account+URL; a 429 is remembered so callers get the last good answer meanwhile.
+const READ_TTL_MS = 300000;
+const RATE_LIMIT_COOLDOWN_MS = 180000;
+const readCache = new Map(); // `${auth_index} ${url}` -> { ok, okUntil, limitedUntil, last429, promise }
+
 // provider → quota endpoints api-call may reach with that account's token
 const ALLOWED_URLS = {
   codex: [U("codex").url, U("codex").resetCreditsUrl, U("codex").resetCreditsConsumeUrl],
@@ -108,10 +115,51 @@ async function send(connection, { method, url, header, data }, proxyOptions) {
 export async function apiCall(input) {
   const method = String(input?.method || "GET").toUpperCase();
   if (method !== "GET" && method !== "POST") throw new CompatError(400, "Unsupported method");
-  let connection = await getExportableConnection(input?.auth_index);
+  const connection = await getExportableConnection(input?.auth_index);
   if (typeof input?.url !== "string" || !isAllowedUrl(connection.provider, input.url)) {
     throw new CompatError(403, "URL not allowed for this account");
   }
+  if (method !== "GET") {
+    const result = await callUpstream(connection, { ...input, method });
+    // A write (e.g. redeeming a reset credit) changes what the quota reads return.
+    if (result.status_code >= 200 && result.status_code < 300) dropCachedReads(connection.id);
+    return result;
+  }
+
+  const key = `${connection.id} ${input.url}`;
+  const now = Date.now();
+  const entry = readCache.get(key) || {};
+  if (entry.promise) return entry.promise;
+  if (entry.ok && entry.okUntil > now) return entry.ok;
+  if (entry.limitedUntil > now) return entry.ok || entry.last429;
+
+  const promise = callUpstream(connection, { ...input, method }).then((result) => {
+    if (result.status_code >= 200 && result.status_code < 300) {
+      readCache.set(key, { ok: result, okUntil: Date.now() + READ_TTL_MS });
+      return result;
+    }
+    if (result.status_code === 429) {
+      readCache.set(key, { ok: entry.ok, limitedUntil: Date.now() + RATE_LIMIT_COOLDOWN_MS, last429: result });
+      return entry.ok || result;
+    }
+    readCache.set(key, { ok: entry.ok });
+    return result;
+  }, (error) => {
+    readCache.set(key, { ok: entry.ok });
+    throw error;
+  });
+  readCache.set(key, { ...entry, promise });
+  return promise;
+}
+
+function dropCachedReads(authIndex) {
+  for (const key of readCache.keys()) {
+    if (key.startsWith(`${authIndex} `)) readCache.delete(key);
+  }
+}
+
+async function callUpstream(connection, input) {
+  const { method } = input;
 
   const proxyOptions = await proxyOptionsFor(connection);
   const request = { method, url: input.url, header: input.header, data: input.data };
@@ -139,3 +187,5 @@ export async function resetQuota(input) {
   await updateProviderConnection(connection.id, { testStatus: "active" });
   return { status: "ok" };
 }
+
+export const __test__ = { readCache };

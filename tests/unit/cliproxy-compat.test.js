@@ -19,7 +19,7 @@ vi.mock("@/app/api/usage/[connectionId]/route.js", () => ({
   refreshAndUpdateCredentials: mocks.refreshAndUpdateCredentials,
 }));
 
-const { listAuthFiles, apiCall, resetQuota } = await import("../../src/lib/cliproxyCompat.js");
+const { listAuthFiles, apiCall, resetQuota, __test__ } = await import("../../src/lib/cliproxyCompat.js");
 
 const codex = {
   id: "codex-1",
@@ -49,6 +49,7 @@ function upstream(status, body) {
 describe("CLIProxyAPI compat", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    __test__.readCache.clear();
     mocks.connections = [codex, claude, glmKey, claudeKey];
     mocks.refreshAndUpdateCredentials.mockImplementation(async (connection) => ({ connection, refreshed: false }));
   });
@@ -144,6 +145,53 @@ describe("CLIProxyAPI compat", () => {
 
     expect(result).toEqual({ status_code: 200, body: '{"ok":true}' });
     expect(mocks.proxyAwareFetch.mock.calls[1][1].headers.Authorization).toBe("Bearer fresh-token");
+  });
+
+  it("shares quota reads per account instead of calling upstream each time", async () => {
+    mocks.proxyAwareFetch.mockResolvedValue(upstream(200, { n: 1 }));
+    const read = { auth_index: "codex-1", url: "https://chatgpt.com/backend-api/wham/usage" };
+
+    const [a, b] = await Promise.all([apiCall(read), apiCall(read)]);
+    const c = await apiCall(read);
+
+    expect([a, b, c].map((r) => r.body)).toEqual(['{"n":1}', '{"n":1}', '{"n":1}']);
+    expect(mocks.proxyAwareFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("answers with the last good read and stops calling upstream after a 429", async () => {
+    const read = { auth_index: "claude-1", url: "https://api.anthropic.com/api/oauth/usage" };
+    mocks.proxyAwareFetch.mockResolvedValueOnce(upstream(200, { good: true }));
+    await apiCall(read);
+    __test__.readCache.get("claude-1 https://api.anthropic.com/api/oauth/usage").okUntil = 0;
+    mocks.proxyAwareFetch.mockResolvedValue(upstream(429, { error: "rate_limit_error" }));
+
+    const limited = await apiCall(read);
+    const again = await apiCall(read);
+
+    expect(limited).toEqual({ status_code: 200, body: '{"good":true}' });
+    expect(again).toEqual(limited);
+    expect(mocks.proxyAwareFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("passes a 429 through when there is no earlier good read", async () => {
+    mocks.proxyAwareFetch.mockResolvedValue(upstream(429, {}));
+
+    const result = await apiCall({ auth_index: "claude-1", url: "https://api.anthropic.com/api/oauth/usage" });
+
+    expect(result.status_code).toBe(429);
+  });
+
+  it("a successful write drops the account's cached reads", async () => {
+    const credits = { auth_index: "codex-1", url: "https://chatgpt.com/backend-api/wham/rate-limit-reset-credits" };
+    mocks.proxyAwareFetch.mockResolvedValueOnce(upstream(200, { credits: ["c1"] }));
+    await apiCall(credits);
+    mocks.proxyAwareFetch.mockResolvedValueOnce(upstream(200, { code: "reset" }));
+    await apiCall({ ...credits, method: "POST", url: `${credits.url}/consume`, data: "{}" });
+    mocks.proxyAwareFetch.mockResolvedValueOnce(upstream(200, { credits: [] }));
+
+    const after = await apiCall(credits);
+
+    expect(after.body).toBe('{"credits":[]}');
   });
 
   it("reset-quota clears the account's routing cooldowns", async () => {

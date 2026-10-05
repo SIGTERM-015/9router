@@ -59,13 +59,16 @@ export async function getClaudeUsage(accessToken, proxyOptions = null, options =
   return promise;
 }
 
+function rateLimitedResult(until) {
+  const minutes = Math.max(1, Math.ceil((until - Date.now()) / 60000));
+  return { message: `Claude usage API rate-limited by Anthropic. Retrying in ${minutes} min.` };
+}
+
 async function fetchClaudeUsageRaw(accessToken, proxyOptions = null) {
   try {
     // Skip OAuth usage call while this token is cooling down from a recent 429
     const cooldownUntil = oauthCooldown.get(accessToken);
-    if (cooldownUntil && Date.now() < cooldownUntil) {
-      return await getClaudeUsageLegacy(accessToken, proxyOptions);
-    }
+    if (cooldownUntil && Date.now() < cooldownUntil) return rateLimitedResult(cooldownUntil);
 
     // Primary: OAuth usage endpoint (Claude Code consumer OAuth tokens)
     // cedar_ember=1 adds the "limit reset" grant block (same flag Claude Code sends)
@@ -140,9 +143,14 @@ async function fetchClaudeUsageRaw(accessToken, proxyOptions = null) {
       };
     }
 
-    // Cool down OAuth usage polling after a 429 (quota endpoint only)
+    // Cool down OAuth usage polling after a 429 (quota endpoint only). The legacy
+    // org endpoints can't serve consumer OAuth tokens, so falling back to them here
+    // would replace "rate limited" with a misleading admin-permissions message.
     if (oauthResponse.status === 429) {
-      oauthCooldown.set(accessToken, Date.now() + OAUTH_429_COOLDOWN_MS);
+      const until = Date.now() + OAUTH_429_COOLDOWN_MS;
+      oauthCooldown.set(accessToken, until);
+      console.warn("[Claude Usage] OAuth endpoint returned 429, cooling down");
+      return rateLimitedResult(until);
     }
 
     // Fallback: legacy settings + org usage endpoint
