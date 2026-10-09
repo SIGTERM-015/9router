@@ -18,7 +18,7 @@ const RETRY_DELAY_MS = 30 * 60 * 1000;
 
 // Listings mix chat models with embeddings, speech, image/video generation and
 // robotics models. Only chat-capable ids belong in the routing table.
-const NON_CHAT = /embed|tts|image|imagen|imagine|veo|lyria|transcribe|voice|speech|live|native-audio|robotics|aqa|computer-use|deep-research|^sam-/i;
+const NON_CHAT = /embed|tts|image|imagen|imagine|banana|veo|lyria|transcribe|voice|speech|live|native-audio|robotics|aqa|computer-use|deep-research|^sam-/i;
 
 const bearer = (token) => ({ Authorization: `Bearer ${token}` });
 const ids = (list, pick) => (Array.isArray(list) ? list : []).map(pick).filter((id) => typeof id === "string" && id);

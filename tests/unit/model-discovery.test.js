@@ -89,6 +89,7 @@ describe("model discovery", () => {
           { name: "models/gemini-3.8-live", supportedGenerationMethods: ["generateContent"] },
           { name: "models/gemini-embedding-2", supportedGenerationMethods: ["embedContent"] },
           { name: "models/veo-4", supportedGenerationMethods: ["predictLongRunning"] },
+          { name: "models/nano-banana-pro-preview", supportedGenerationMethods: ["generateContent"] },
         ],
       },
     }));
