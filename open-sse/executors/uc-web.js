@@ -4,6 +4,7 @@
 // JWT is minted from Clerk per request; the account uid comes from the minted
 // token's claims. Ported from OmniRoute's uc persona paths.
 import { BaseExecutor } from "./base.js";
+import { fetchImageAsBase64, parseDataUri } from "../translator/concerns/image.js";
 
 const UC_ORIGIN = "https://uncensored.com";
 const UC_CLERK_FAPI = "https://clerk.uncensored.com";
@@ -300,13 +301,14 @@ async function downloadBinary(url, { signal }) {
   return { b64: buffer.toString("base64"), mime: (res.headers.get("content-type") || "").split(";")[0] || "application/octet-stream" };
 }
 
-async function resolveImageBytes(ref, signal, log) {
+export async function resolveImageBytes(ref, signal, log) {
   const dataMatch = /^data:[^;]*;base64,(.*)$/.exec(String(ref));
   if (dataMatch) return Buffer.from(dataMatch[1], "base64");
   if (/^https?:\/\//i.test(String(ref))) {
-    const res = await fetch(ref, { signal, headers: { Accept: "image/*", "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36" } });
-    if (!res.ok) throw new Error(`input image download failed (HTTP ${res.status})`);
-    return Buffer.from(await res.arrayBuffer());
+    // Caller-supplied URL: public hosts only, pinned DNS, no redirects, size cap.
+    const fetched = await fetchImageAsBase64(String(ref), { signal, headers: { Accept: "image/*", "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36" } });
+    if (!fetched) throw new Error("input image download failed");
+    return Buffer.from(parseDataUri(fetched.url).base64, "base64");
   }
   try {
     return Buffer.from(String(ref), "base64");

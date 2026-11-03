@@ -340,3 +340,42 @@ describe("dashboard guard helpers", () => {
     expect(__test__.extractApiKey(apiRequest)).toBe("header-key");
   });
 });
+
+describe("dashboard guard web login", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.NINEROUTER_PEER_TOKEN = PEER_TOKEN;
+    mocks.getSettings.mockResolvedValue({ requireLogin: false });
+    mocks.getConsistentMachineId.mockResolvedValue("cli-token");
+    mocks.verifyDashboardAuthToken.mockResolvedValue(false);
+  });
+
+  it("refuses the host-browser login from a remote caller even with login disabled", async () => {
+    const response = await proxy(request("/api/providers/web-login"));
+
+    expect(response.status).toBe(403);
+  });
+
+  it("refuses a remote caller that holds a valid dashboard session", async () => {
+    mocks.getSettings.mockResolvedValue({ requireLogin: true });
+    mocks.verifyDashboardAuthToken.mockResolvedValue(true);
+    const remote = request("/api/providers/web-login", { host: "tunnel.example.com" });
+    remote.cookies = { get: vi.fn(() => ({ value: "jwt" })) };
+
+    expect((await proxy(remote)).status).toBe(403);
+  });
+
+  it("needs a dashboard session even on the host when login is disabled", async () => {
+    const response = await proxy(localRequest("/api/providers/web-login", { host: "localhost:20128" }));
+
+    expect(response.status).toBe(401);
+  });
+
+  it("lets a logged-in dashboard on the host use it", async () => {
+    mocks.verifyDashboardAuthToken.mockResolvedValue(true);
+    const local = localRequest("/api/providers/web-login", { host: "localhost:20128" });
+    local.cookies = { get: vi.fn(() => ({ value: "jwt" })) };
+
+    expect(await proxy(local)).toBe(mocks.nextResponse);
+  });
+});

@@ -13,6 +13,7 @@
 
 import { createHash } from "node:crypto";
 import { BaseExecutor } from "./base.js";
+import { fetchImageAsBase64, parseDataUri } from "../translator/concerns/image.js";
 import { SSE_DONE, SSE_HEADERS_NO_BUFFER } from "../utils/sseConstants.js";
 import { isMissingBrowserExecutable, resolveSystemChromeExecutable } from "./browserExecutableCheck.js";
 import { acquireBrowserContext, releaseBrowserContext } from "../services/browserPool.js";
@@ -176,23 +177,22 @@ async function sendPrompt(page, prompt) {
   }
 }
 
-async function resolveImageRef(ref) {
+export async function resolveImageRef(ref) {
   const dataUri = String(ref).match(/^data:(image\/[^;]+);base64,(.+)$/);
   if (dataUri) return { b64: dataUri[2], mime: dataUri[1] };
   if (/^https?:/i.test(ref)) {
+    // Caller-supplied URL: public hosts only, pinned DNS, no redirects, size cap.
     // Some hosts (CDNs, wikimedia) reject the default undici UA with 4xx.
-    const r = await fetch(ref, {
+    const fetched = await fetchImageAsBase64(String(ref), {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36",
         Accept: "image/*",
       },
     });
-    if (!r.ok) return null;
-    const buf = Buffer.from(await r.arrayBuffer());
-    const mime = (r.headers.get("content-type") || "").split(";")[0].trim() || "image/png";
-    if (!mime.startsWith("image/")) return null;
-    return { b64: buf.toString("base64"), mime };
+    if (!fetched) return null;
+    const { mimeType, base64 } = parseDataUri(fetched.url);
+    return { b64: base64, mime: mimeType };
   }
   return null;
 }
