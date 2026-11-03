@@ -70,11 +70,11 @@ function detectImageMime(buf) {
  * Returns null on any failure or rejection.
  *
  * @param {string} imageUrl - HTTP(S) URL of the image
- * @param {object} options - { signal, timeoutMs, maxBytes }
+ * @param {object} options - { signal, timeoutMs, maxBytes, headers }
  * @returns {Promise<{url: string, mimeType: string}|null>}
  */
 export async function fetchImageAsBase64(imageUrl, options = {}) {
-  const { signal, timeoutMs = FETCH_TIMEOUT_MS, maxBytes = MAX_IMAGE_BYTES } = options;
+  const { signal, timeoutMs = FETCH_TIMEOUT_MS, maxBytes = MAX_IMAGE_BYTES, headers } = options;
   if (!imageUrl || (!imageUrl.startsWith("http://") && !imageUrl.startsWith("https://"))) {
     return null;
   }
@@ -95,7 +95,7 @@ export async function fetchImageAsBase64(imageUrl, options = {}) {
 
   try {
     // redirect:"manual" prevents a public URL redirecting to a private one (SSRF bypass).
-    const response = await fetch(imageUrl, { signal: fetchSignal, redirect: "manual", dispatcher });
+    const response = await fetch(imageUrl, { signal: fetchSignal, redirect: "manual", dispatcher, headers });
     if (!response.ok || !response.body) return null;
 
     // Stream-read with a hard byte cap to avoid loading huge payloads into memory.
