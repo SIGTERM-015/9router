@@ -14,6 +14,8 @@ function maskApiKey(key) {
 const PENDING_TIMEOUT_MS = 60 * 1000;
 const RING_CAP = 50;
 const CONN_CACHE_TTL_MS = 30 * 1000;
+const DEFAULT_USAGE_RETENTION_DAYS = 90;
+const PRUNE_INTERVAL_MS = 60 * 60 * 1000;
 const PERIOD_MS = { "24h": 86400000, "7d": 604800000, "30d": 2592000000, "60d": 5184000000 };
 
 // In-memory state shared across Next.js modules
@@ -45,6 +47,34 @@ function scheduleStatsEvent(event, delayMs = 150) {
     statsEmitter.emit(event);
   }, delayMs);
   statsEmitTimers[key]?.unref?.();
+}
+
+// Days of usage kept: setting `usageRetentionDays`, then env USAGE_RETENTION_DAYS, then 90.
+// 0 keeps everything. Anything that is not a non-negative integer falls through to the next source.
+async function getUsageRetentionDays() {
+  const valid = (v) => (v !== null && v !== undefined && v !== "" && Number.isInteger(Number(v)) && Number(v) >= 0 ? Number(v) : null);
+  try {
+    const { getSettings } = await import("./settingsRepo.js");
+    const fromSettings = valid((await getSettings()).usageRetentionDays);
+    if (fromSettings !== null) return fromSettings;
+  } catch { /* settings unreadable: fall back to env/default */ }
+  const fromEnv = valid(process.env.USAGE_RETENTION_DAYS);
+  return fromEnv !== null ? fromEnv : DEFAULT_USAGE_RETENTION_DAYS;
+}
+
+// Rotate usageHistory and usageDaily older than the retention window. Runs at most once an hour
+// per process, from the write path, so no timer is needed. totalRequestsLifetime is untouched.
+async function pruneUsage(db) {
+  if (global._lastUsagePrune && Date.now() - global._lastUsagePrune < PRUNE_INTERVAL_MS) return;
+  global._lastUsagePrune = Date.now();
+  const days = await getUsageRetentionDays();
+  if (days === 0) return;
+  const now = new Date();
+  const cutoffDay = new Date(now.getFullYear(), now.getMonth(), now.getDate() - days);
+  db.transaction(() => {
+    db.run(`DELETE FROM usageHistory WHERE timestamp < ?`, [cutoffDay.toISOString()]);
+    db.run(`DELETE FROM usageDaily WHERE dateKey < ?`, [getLocalDateKey(cutoffDay)]);
+  });
 }
 
 function getLocalDateKey(timestamp) {
@@ -310,6 +340,7 @@ export async function saveRequestUsage(entry) {
       pushToRing(entry);
       scheduleStatsEvent("update", 250);
     }
+    await pruneUsage(db);
   } catch (e) {
     console.error("Failed to save usage stats:", e);
   }
