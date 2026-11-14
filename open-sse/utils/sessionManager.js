@@ -220,6 +220,15 @@ export function resolveSessionIdentity({ headers, body, connectionId, workspaceI
     return { sessionId: deriveSessionId(connectionId), ephemeral: false };
 }
 
+/**
+ * Conversation id for routing (keeping a conversation on one account): the client's own
+ * session id, else the accumulated-assistant-text hash. Null for a first turn without a
+ * client id: unlike resolveSessionIdentity, never a generated or per-connection id.
+ */
+export function resolveConversationId({ headers, body } = {}) {
+    return extractClientSessionId(headers, body) || assistantTextSessionId("route", body) || null;
+}
+
 export function resolveSessionId(opts = {}) {
     return resolveSessionIdentity(opts).sessionId;
 }

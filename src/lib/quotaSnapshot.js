@@ -59,9 +59,10 @@ function toAccount(connection, result) {
   };
 }
 
-async function readAccount(connection) {
+// Also used by quota-aware routing (src/sse/services/quotaRouting.js).
+export async function readAccount(connection, { force = false } = {}) {
   try {
-    return toAccount(connection, await readConnectionUsage(connection));
+    return toAccount(connection, await readConnectionUsage(connection, { force }));
   } catch (error) {
     return toAccount(connection, { error: error.message });
   }
