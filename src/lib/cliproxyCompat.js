@@ -71,11 +71,21 @@ async function getExportableConnection(authIndex) {
   return connection;
 }
 
-function toAuthFile(connection) {
+// CLIProxyAPI's `id` is the auth file name, and dashboards show it for accounts without an
+// email (9router's Claude OAuth accounts have none). So `id` is the account name, unique
+// within the list; `auth_index` stays the connection id every other call is keyed on.
+function authFileIds(connections) {
+  const names = connections.map((c) => c.name?.trim() || c.email || c.id);
+  const counts = new Map();
+  for (const name of names) counts.set(name, (counts.get(name) || 0) + 1);
+  return names.map((name, i) => (counts.get(name) > 1 ? `${name} (${connections[i].id.slice(0, 8)})` : name));
+}
+
+function toAuthFile(connection, id) {
   const data = connection.providerSpecificData || {};
   const accountId = data.chatgptAccountId || data.workspaceId || data.accountId;
   return {
-    id: connection.id,
+    id,
     auth_index: connection.id,
     provider: connection.provider,
     ...(connection.email ? { email: connection.email } : {}),
@@ -93,8 +103,9 @@ function toAuthFile(connection) {
 }
 
 export async function listAuthFiles() {
-  const connections = await getProviderConnections();
-  return { files: connections.filter(isExportable).map(toAuthFile) };
+  const connections = (await getProviderConnections()).filter(isExportable);
+  const ids = authFileIds(connections);
+  return { files: connections.map((connection, i) => toAuthFile(connection, ids[i])) };
 }
 
 function substituteToken(headers, token) {
