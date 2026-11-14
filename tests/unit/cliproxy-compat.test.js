@@ -58,16 +58,33 @@ describe("CLIProxyAPI compat", () => {
     expect(await listAuthFiles()).toEqual({
       files: [
         {
-          id: "codex-1",
+          id: "a@example.com",
           auth_index: "codex-1",
           provider: "codex",
           email: "a@example.com",
           disabled: false,
           id_token: { chatgpt_account_id: "acct-1", chatgpt_plan_type: "pro" },
         },
-        { id: "claude-1", auth_index: "claude-1", provider: "claude", email: "b@example.com", disabled: true },
+        { id: "b@example.com", auth_index: "claude-1", provider: "claude", email: "b@example.com", disabled: true },
       ],
     });
+  });
+
+  it("names each auth file after its account, disambiguating repeated names", async () => {
+    const account = (id, name) => ({ id, name, provider: "claude", authType: "oauth", isActive: true });
+    mocks.connections = [
+      account("9b845f3f-0000", "ECDLL Nerea"),
+      account("00101ed9-0000", undefined),
+      account("fa9ba6da-0000", "Work"),
+      account("11111111-0000", "Work"),
+    ];
+    const { files } = await listAuthFiles();
+    expect(files.map(({ id, auth_index, label }) => ({ id, auth_index, label }))).toEqual([
+      { id: "ECDLL Nerea", auth_index: "9b845f3f-0000", label: "ECDLL Nerea" },
+      { id: "00101ed9-0000", auth_index: "00101ed9-0000", label: undefined },
+      { id: "Work (fa9ba6da)", auth_index: "fa9ba6da-0000", label: "Work" },
+      { id: "Work (11111111)", auth_index: "11111111-0000", label: "Work" },
+    ]);
   });
 
   it("forwards a quota read with the account token substituted", async () => {

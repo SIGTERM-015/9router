@@ -4,6 +4,7 @@ import { formatRetryAfter, checkFallbackError, isModelLockActive, buildModelLock
 import { MAX_RATE_LIMIT_COOLDOWN_MS } from "open-sse/config/errorConfig.js";
 import { resolveProviderId, FREE_PROVIDERS } from "@/shared/constants/providers.js";
 import { getAntigravityQuotaCache, getAntigravityModelQuota } from "./antigravityQuota.js";
+import { QUOTA_AWARE, pickQuotaAware, refreshAccountUsage } from "./quotaRouting.js";
 import * as log from "../utils/logger.js";
 
 // Mutex to prevent race conditions during account selection
@@ -32,6 +33,7 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     : (excludeConnectionIds ? new Set([excludeConnectionIds]) : new Set());
   const preferredConnectionId = options?.preferredConnectionId || null;
   const requestedModel = options?.requestedModel || model;
+  const sessionId = options?.sessionId || null;
   // Acquire mutex to prevent race conditions
   const currentMutex = selectionMutex;
   let resolveMutex;
@@ -155,6 +157,14 @@ export async function getProviderCredentials(provider, excludeConnectionIds = nu
     }
     if (connection) {
       // skip strategy
+    } else if (strategy === QUOTA_AWARE) {
+      for (const c of connections) void refreshAccountUsage(c);
+      const pick = pickQuotaAware(availableConnections, {
+        model: requestedModel,
+        sessionKey: sessionId ? `${providerId}:${sessionId}` : null,
+      });
+      connection = pick.connection;
+      log.debug("AUTH", `${provider} | quota-aware → ${connection.name || connection.id?.slice(0, 8)} (${pick.reason})`);
     } else if (strategy === "round-robin") {
       const stickyLimit = providerOverride.stickyRoundRobinLimit || settings.stickyRoundRobinLimit || 3;
 
