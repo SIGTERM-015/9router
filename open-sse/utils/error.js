@@ -1,4 +1,5 @@
 import { ERROR_TYPES, DEFAULT_ERROR_MESSAGES } from "../config/errorConfig.js";
+import { anthropicRejectedUntil } from "./anthropicQuota.js";
 
 /**
  * Build OpenAI-compatible error response body
@@ -64,13 +65,16 @@ export async function parseUpstreamError(response, executor = null) {
     bodyText = "";
   }
 
+  // A rejected Claude subscription request says in its headers when the limit resets.
+  const limitResetsAtMs = anthropicRejectedUntil(response.headers) ?? undefined;
+
   // Let executor-specific parser extract provider-specific fields (e.g. codex resetsAtMs)
   if (executor && typeof executor.parseError === "function") {
     try {
       const parsed = executor.parseError(response, bodyText);
       if (parsed && typeof parsed === "object") {
         const msg = parsed.message || DEFAULT_ERROR_MESSAGES[response.status] || `Upstream error: ${response.status}`;
-        return { statusCode: parsed.status || response.status, message: msg, resetsAtMs: parsed.resetsAtMs };
+        return { statusCode: parsed.status || response.status, message: msg, resetsAtMs: parsed.resetsAtMs ?? limitResetsAtMs };
       }
     } catch { /* fall through to default parsing */ }
   }
@@ -86,7 +90,7 @@ export async function parseUpstreamError(response, executor = null) {
   const messageStr = typeof message === "string" ? message : JSON.stringify(message);
   const finalMessage = messageStr || DEFAULT_ERROR_MESSAGES[response.status] || `Upstream error: ${response.status}`;
 
-  return { statusCode: response.status, message: finalMessage };
+  return { statusCode: response.status, message: finalMessage, resetsAtMs: limitResetsAtMs };
 }
 
 /**

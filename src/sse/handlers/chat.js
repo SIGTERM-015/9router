@@ -8,7 +8,7 @@ import {
   isValidApiKey,
 } from "../services/auth.js";
 import { handleAntigravityQuotaError, clearAntigravityStrikes } from "../services/antigravityQuota.js";
-import { noteRateLimited } from "../services/quotaRouting.js";
+import { noteResponse } from "../services/quotaRouting.js";
 import { getSettings } from "@/lib/localDb";
 import { getModelInfo, getComboModels } from "../services/model.js";
 import { handleChatCore } from "open-sse/handlers/chatCore.js";
@@ -361,6 +361,7 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
       }
     });
 
+    noteResponse(credentials._connection, result.response);
     if (result.success) return result.response;
 
     // Antigravity 409/429: refresh live quota to get exact resetAt before locking
@@ -379,8 +380,6 @@ async function handleSingleModelChat(body, modelStr, clientRawRequest = null, re
     const shouldFallback = provider === "antigravity" && quotaResetMs
       ? true
       : (await markAccountUnavailable(credentials.connectionId, result.status, result.error, provider, model, resetsAtMs)).shouldFallback;
-
-    if (result.status === HTTP_STATUS.RATE_LIMITED) noteRateLimited(credentials._connection);
 
     if (shouldFallback) {
       log.warn("FALLBACK", `⇄ ACC:${credentials.connectionName} UNAVAILABLE (${result.status}) → NEXT ACCOUNT`);
