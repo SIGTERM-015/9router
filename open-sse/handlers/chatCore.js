@@ -4,6 +4,7 @@ import { applyThinking, extractThinking, stripThinkingSuffix } from "../translat
 import { FORMATS } from "../translator/formats.js";
 import { normalizeClaudePassthrough, anchorClaudeCache } from "../translator/formats/claude.js";
 import { createStreamController } from "../utils/streamHandler.js";
+import { resolveStreamMode } from "../utils/streamMode.js";
 import { refreshWithRetry } from "../services/tokenRefresh.js";
 import { createRequestLogger } from "../utils/requestLogger.js";
 import { getModelTargetFormat, getModelSupportedFormats, getModelStrip, getModelUpstreamId, getModelType, PROVIDER_ID_TO_ALIAS } from "../config/providerModels.js";
@@ -143,27 +144,20 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
 
   const clientRequestedStreaming = body.stream === true || sourceFormat === FORMATS.ANTIGRAVITY || sourceFormat === FORMATS.GEMINI || sourceFormat === FORMATS.GEMINI_CLI;
   const providerRequiresStreaming = PROVIDERS[provider]?.forceStream === true;
-  let stream = providerRequiresStreaming ? true : (body.stream !== false);
+
+  const detectedTool = detectClientTool(clientRawRequest?.headers || {}, body);
+  let stream = resolveStreamMode({
+    body,
+    sourceFormat,
+    providerRequiresStreaming,
+    detectedTool,
+    acceptHeader: clientRawRequest?.headers?.accept || ""
+  });
 
   // Image generation models require non-streaming (Google v1internal:generateContent)
   const modelType = getModelType(alias, model);
   const isImageGenModel = modelType === "imageGen" || /image|imagen|image-generation/i.test(model);
   if (isImageGenModel && (provider === "antigravity" || provider === "gemini-cli")) {
-    stream = false;
-  }
-
-  // DeepSeek-TUI: interactive TUI panel sends stream:true and needs SSE.
-  // Non-interactive mode (-p flag) sends without stream and can't parse SSE.
-  // Only force non-streaming when client didn't explicitly request it.
-  const detectedTool = detectClientTool(clientRawRequest?.headers || {}, body);
-  if (detectedTool === "deepseek-tui" && body.stream !== true) stream = false;
-
-  // Check client Accept header preference for non-streaming requests
-  // This fixes AI SDK compatibility where clients send Accept: application/json
-  const acceptHeader = clientRawRequest?.headers?.accept || "";
-  const clientPrefersJson = acceptHeader.includes("application/json");
-  const clientPrefersSSE = acceptHeader.includes("text/event-stream");
-  if (clientPrefersJson && !clientPrefersSSE && body.stream !== true && !providerRequiresStreaming) {
     stream = false;
   }
 
