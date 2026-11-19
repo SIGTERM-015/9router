@@ -139,6 +139,7 @@ function vertexRefreshHandler(c, log) {
 const REFRESH_HANDLERS = {
   "gemini-cli": (c, log) => refreshGoogleToken(c.refreshToken, PROVIDERS["gemini-cli"].clientId, PROVIDERS["gemini-cli"].clientSecret, log),
   antigravity: (c, log) => refreshGoogleToken(c.refreshToken, PROVIDERS.antigravity.clientId, PROVIDERS.antigravity.clientSecret, log),
+  "antigravity-enterprise": (c, log) => refreshGoogleToken(c.refreshToken, PROVIDERS["antigravity-enterprise"].clientId, PROVIDERS["antigravity-enterprise"].clientSecret, log),
   claude: (c, log) => refreshClaudeOAuthToken(c.refreshToken, log),
   codex: (c, log) => refreshCodexToken(c.refreshToken, log),
   iflow: (c, log) => refreshIflowToken(c.refreshToken, log),
@@ -227,6 +228,7 @@ export function formatProviderCredentials(provider, credentials, log) {
       };
 
     case "antigravity":
+    case "antigravity-enterprise":
     case "gemini-cli":
       return {
         accessToken: credentials.accessToken,

@@ -42,6 +42,7 @@ export default function ProviderLimitCard({
     const colors = {
       github: "#000000",
       antigravity: "#4285F4",
+      "antigravity-enterprise": "#4285F4",
       codex: "#10A37F",
       kiro: "#FF9900",
       qoder: "#EC4899",

@@ -17,7 +17,7 @@ vi.mock("../../open-sse/services/minimaxCodeUsage.js", () => mcode);
 
 const load = () => import("../../open-sse/services/usage.js");
 const SUPPORTED = [
-  "github", "gemini-cli", "antigravity", "claude", "codex", "kiro",
+  "github", "gemini-cli", "antigravity", "antigravity-enterprise", "claude", "codex", "kiro",
   "qoder", "qoder-cn", "iflow", "ollama", "glm", "glm-cn",
   "minimax", "minimax-cn", "minimax-code", "minimax-code-global", "vercel-ai-gateway", "grok-cli", "kimi",
   "deepseek", "opencode-go", "zed", "commandcode", "synthetic",

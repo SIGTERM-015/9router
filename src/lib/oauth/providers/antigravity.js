@@ -1,5 +1,4 @@
 import { ANTIGRAVITY_CONFIG, getOAuthClientMetadata } from "../constants/oauth.js";
-import { fetchAntigravityLicenses, selfAssignAntigravityLicense } from "open-sse/services/antigravityEnterprise.js";
 
 const antigravity = {
   config: ANTIGRAVITY_CONFIG,
@@ -39,10 +38,7 @@ const antigravity = {
 
     return await response.json();
   },
-  // An enterprise account is one with a Gemini Enterprise license: `fetchLicenses` names its project
-  // and location on the OAuth token alone. meta.projectId + meta.location pin one when the user holds
-  // several (it is then assigned rather than read back).
-  postExchange: async (tokens, meta = {}) => {
+  postExchange: async (tokens) => {
     const userInfoRes = await fetch(`${ANTIGRAVITY_CONFIG.userInfoUrl}?alt=json`, {
       headers: {
         Authorization: `Bearer ${tokens.access_token}`,
@@ -50,15 +46,6 @@ const antigravity = {
       },
     });
     const userInfo = userInfoRes.ok ? await userInfoRes.json() : {};
-
-    let enterpriseLicense = null;
-    if (meta.projectId && meta.location) {
-      enterpriseLicense = await selfAssignAntigravityLicense(tokens.access_token, meta.projectId, meta.location);
-    } else {
-      const [found] = await fetchAntigravityLicenses(tokens.access_token);
-      if (found) enterpriseLicense = (await selfAssignAntigravityLicense(tokens.access_token, found.projectId, found.location)) || found;
-    }
-    if (enterpriseLicense) return { userInfo, projectId: enterpriseLicense.projectId, enterpriseLicense };
 
     const loadHeaders = {
       "Authorization": `Bearer ${tokens.access_token}`,
@@ -125,7 +112,6 @@ const antigravity = {
     scope: tokens.scope,
     email: extra?.userInfo?.email,
     projectId: extra?.projectId,
-    ...(extra?.enterpriseLicense ? { providerSpecificData: { enterpriseLicense: extra.enterpriseLicense } } : {}),
   }),
 };
 

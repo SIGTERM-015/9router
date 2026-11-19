@@ -1,6 +1,6 @@
 /**
  * Antigravity enterprise (Business AI Code) account calls: license discovery and model catalogue.
- * Requests themselves go through AntigravityExecutor; quota through usage/google.js.
+ * Requests themselves go through AntigravityEnterpriseExecutor; quota through usage/google.js.
  */
 
 import { antigravityEnterpriseUrl } from "../providers/shared.js";
@@ -52,6 +52,9 @@ export function parseEnterpriseConfigModels(data) {
 }
 
 export function fetchAntigravityEnterpriseConfig(accessToken, license) {
+  if (!license?.userTier || !license?.projectId || !license?.location) {
+    throw new Error("Antigravity enterprise license metadata missing");
+  }
   const url = `${antigravityEnterpriseUrl(license, "fetchConfig")}?entitlement.userTier=${encodeURIComponent(license.userTier)}`;
   return fetch(url, { method: "GET", headers: headers(accessToken) });
 }

@@ -3,6 +3,7 @@
  */
 import { platform, arch } from "os";
 import { ANTIGRAVITY_OAUTH_CLIENT, GOOGLE_OAUTH_CLIENT } from "open-sse/providers/shared.js";
+import { ANTIGRAVITY_ENTERPRISE_OAUTH_CLIENT } from "open-sse/providers/shared.js";
 import { PROVIDER_OAUTH, PROVIDERS as REGISTRY_PROVIDERS } from "open-sse/providers/index.js";
 
 /**
@@ -48,6 +49,12 @@ export const ANTIGRAVITY_CONFIG = {
   ...ANTIGRAVITY_OAUTH_CLIENT,
   ...PROVIDER_OAUTH["antigravity"],
   loadCodeAssistClientMetadata: JSON.stringify({ ideType: 9, platform: getOAuthPlatformEnum(), pluginType: 2 }),
+};
+
+// Gemini Enterprise (Business AI Code) OAuth Configuration (Standard OAuth2 with Google)
+export const ANTIGRAVITY_ENTERPRISE_CONFIG = {
+  ...ANTIGRAVITY_ENTERPRISE_OAUTH_CLIENT,
+  ...PROVIDER_OAUTH["antigravity-enterprise"],
 };
 
 /**
@@ -247,6 +254,7 @@ export const PROVIDERS = {
   QODER_CN: "qoder-cn",
   IFLOW: "iflow",
   ANTIGRAVITY: "antigravity",
+  ANTIGRAVITY_ENTERPRISE: "antigravity-enterprise",
   OPENAI: "openai",
   GITHUB: "github",
   KIRO: "kiro",

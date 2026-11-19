@@ -117,9 +117,7 @@ async function getGeminiSubscriptionInfo(accessToken, proxyOptions = null) {
 /**
  * Antigravity Usage - Fetch quota from Google Cloud Code API
  */
-export async function getAntigravityUsage(accessToken, providerSpecificData, proxyOptions = null) {
-  const license = providerSpecificData?.enterpriseLicense;
-  if (license) return getAntigravityEnterpriseUsage(accessToken, license, proxyOptions);
+export async function getAntigravityUsage(accessToken, _providerSpecificData, proxyOptions = null) {
   try {
     // Fetch subscription info once — reuse for both projectId and plan
     const subscriptionInfo = await getAntigravitySubscriptionInfo(accessToken, proxyOptions);
@@ -341,7 +339,11 @@ async function getAntigravitySubscriptionInfo(accessToken, proxyOptions = null) 
  * retrieveUserQuotaSummary shape ("Gemini Enterprise Quota" → weekly bucket), so they map onto the
  * same gemini_* keys the dashboard and quota routing already read.
  */
-async function getAntigravityEnterpriseUsage(accessToken, license, proxyOptions = null) {
+export async function getAntigravityEnterpriseUsage(accessToken, providerSpecificData, proxyOptions = null) {
+  const license = providerSpecificData?.enterpriseLicense;
+  if (!license?.userTier || !license?.projectId || !license?.location) {
+    return { message: "Antigravity enterprise license metadata missing. Reconnect the account.", quotas: {} };
+  }
   const plan = license.tierDisplayName || license.userTier;
   try {
     const url = `${antigravityEnterpriseUrl(license, "fetchQuotaStatus")}?entitlement.userTier=${encodeURIComponent(license.userTier)}`;

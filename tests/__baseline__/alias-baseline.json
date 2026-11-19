@@ -141,6 +141,7 @@
     "alitp-intl": "alitp-intl",
     "anthropic": "anthropic",
     "antigravity": "ag",
+    "antigravity-enterprise": "age",
     "api-airforce": "af",
     "assemblyai": "assemblyai",
     "atria": "atria",
@@ -283,6 +284,7 @@
   "modelKeys": [
     "af",
     "ag",
+    "age",
     "agnes",
     "alicode",
     "alicode-intl",

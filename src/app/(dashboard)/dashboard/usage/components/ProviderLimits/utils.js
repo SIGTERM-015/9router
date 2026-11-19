@@ -380,6 +380,7 @@ export function parseQuotaData(provider, data) {
         break;
 
       case "antigravity":
+      case "antigravity-enterprise":
         if (data.quotas) {
           const entries = Object.entries(data.quotas);
           const weeklyKeys = new Set(["gemini_weekly", "claude_gpt_weekly", "gemini_argon_weekly"]);
