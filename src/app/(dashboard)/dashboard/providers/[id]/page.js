@@ -57,6 +57,7 @@ export default function ProviderDetailPage() {
   const [providerNode, setProviderNode] = useState(null);
   const [proxyPools, setProxyPools] = useState([]);
   const [showOAuthModal, setShowOAuthModal] = useState(false);
+  const [reauthConnectionId, setReauthConnectionId] = useState(null);
   const [showXiaomiMimoModal, setShowXiaomiMimoModal] = useState(false);
   const [showIFlowCookieModal, setShowIFlowCookieModal] = useState(false);
   const [showAddApiKeyModal, setShowAddApiKeyModal] = useState(false);
@@ -106,7 +107,13 @@ export default function ProviderDetailPage() {
     setShowOAuthModal(true);
   };
 
-  const triggerOAuthConnection = () => {
+  const closeOAuthModal = () => {
+    setShowOAuthModal(false);
+    setReauthConnectionId(null);
+  };
+
+  const triggerOAuthConnection = (connectionId = null) => {
+    setReauthConnectionId(typeof connectionId === "string" ? connectionId : null);
     if (providerId === "antigravity" && typeof window !== "undefined") {
       const confirmed = window.localStorage.getItem(AG_RISK_STORAGE_KEY) === "true";
       if (!confirmed) {
@@ -873,7 +880,7 @@ export default function ProviderDetailPage() {
 
   const handleOAuthSuccess = () => {
     fetchConnections();
-    setShowOAuthModal(false);
+    closeOAuthModal();
   };
 
   const handleIFlowCookieSuccess = () => {
@@ -1113,6 +1120,7 @@ export default function ProviderDetailPage() {
                     console.log("Error updating proxy:", error);
                   }
                 }}
+                onReauth={isOAuth ? () => triggerOAuthConnection(conn.id) : undefined}
                 onEdit={() => {
                   setSelectedConnection(conn);
                   setShowEditModal(true);
@@ -1901,35 +1909,36 @@ export default function ProviderDetailPage() {
           isOpen={showOAuthModal}
           providerInfo={providerInfo}
           onSuccess={handleOAuthSuccess}
-          onClose={() => setShowOAuthModal(false)}
+          onClose={closeOAuthModal}
         />
       ) : providerId === "cursor" ? (
         <CursorAuthModal
           isOpen={showOAuthModal}
           onSuccess={handleOAuthSuccess}
-          onClose={() => setShowOAuthModal(false)}
+          onClose={closeOAuthModal}
         />
       ) : providerId === "zed" ? (
         <ZedAuthModal
           isOpen={showOAuthModal}
           providerInfo={providerInfo}
           onSuccess={handleOAuthSuccess}
-          onClose={() => setShowOAuthModal(false)}
+          onClose={closeOAuthModal}
         />
       ) : providerId === "gitlab" ? (
         <GitLabAuthModal
           isOpen={showOAuthModal}
           providerInfo={providerInfo}
           onSuccess={handleOAuthSuccess}
-          onClose={() => setShowOAuthModal(false)}
+          onClose={closeOAuthModal}
         />
       ) : (
         <OAuthModal
           isOpen={showOAuthModal}
           provider={providerId}
           providerInfo={providerInfo}
+          reauthConnectionId={reauthConnectionId}
           onSuccess={handleOAuthSuccess}
-          onClose={() => setShowOAuthModal(false)}
+          onClose={closeOAuthModal}
         />
       )}
 
@@ -1937,7 +1946,10 @@ export default function ProviderDetailPage() {
       <XiaomiMimoAuthModal
         isOpen={showXiaomiMimoModal}
         onSuccess={handleOAuthSuccess}
-        onClose={() => setShowXiaomiMimoModal(false)}
+        onClose={() => {
+          setShowXiaomiMimoModal(false);
+          setReauthConnectionId(null);
+        }}
       />
       {providerId === "iflow" && (
         <IFlowCookieModal
@@ -2024,7 +2036,10 @@ export default function ProviderDetailPage() {
       {/* AG Risk Confirmation Modal */}
       <ConfirmModal
         isOpen={showAgRiskModal}
-        onClose={() => setShowAgRiskModal(false)}
+        onClose={() => {
+          setShowAgRiskModal(false);
+          setReauthConnectionId(null);
+        }}
         onConfirm={handleAgRiskConfirm}
         title="Risk Notice"
         message={providerInfo?.deprecationNotice}

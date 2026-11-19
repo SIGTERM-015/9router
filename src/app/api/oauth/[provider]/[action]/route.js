@@ -44,14 +44,23 @@ import {
   clearXiaomiMimoSession,
 } from "@/lib/oauth/utils/server";
 import { detectIdeInstalled } from "@/lib/oauth/utils/ideDetect";
+import { validateReauthConnection, saveOAuthConnection } from "@/lib/oauth/utils/reauth";
 import { ZED_HOSTED_CONFIG } from "@/lib/oauth/constants/oauth";
 
-async function completeXaiManualCode(code, state) {
+async function completeXaiManualCode(code, state, reauthConnectionId = null) {
   const session = state ? getXaiSessionStatus(state) : null;
   if (!session) {
     throw new Error("xAI OAuth session not found; restart the login flow and paste the code again");
   }
   if (!code) throw new Error("Missing xAI authorization code");
+
+  const targetReauthId = reauthConnectionId || session.reauthConnectionId || null;
+  const reauthCheck = await validateReauthConnection(targetReauthId, "xai");
+  if (!reauthCheck.ok) {
+    const err = new Error(reauthCheck.error);
+    err.status = reauthCheck.status;
+    throw err;
+  }
 
   try {
     const tokenData = await exchangeTokens(
@@ -61,7 +70,7 @@ async function completeXaiManualCode(code, state) {
       session.codeVerifier,
       state
     );
-    const connection = await createProviderConnection({
+    const connection = await saveOAuthConnection({
       provider: "xai",
       authType: "oauth",
       ...tokenData,
@@ -69,7 +78,7 @@ async function completeXaiManualCode(code, state) {
         ? new Date(Date.now() + tokenData.expiresIn * 1000).toISOString()
         : null,
       testStatus: "active",
-    });
+    }, targetReauthId);
     clearXaiSession(state);
     stopXaiProxy();
     return {
@@ -169,14 +178,19 @@ export async function GET(request, { params }) {
       const state = searchParams.get("state");
       const codeVerifier = searchParams.get("code_verifier");
       const redirectUri = searchParams.get("redirect_uri");
+      const reauthConnectionId = searchParams.get("reauth_connection_id") || null;
+      const reauthCheck = await validateReauthConnection(reauthConnectionId, provider);
+      if (!reauthCheck.ok) {
+        return NextResponse.json({ error: reauthCheck.error }, { status: reauthCheck.status });
+      }
       const result = provider === "xai"
         ? await startXaiProxy(Number(appPort))
         : await startCodexProxy(Number(appPort));
       let serverSide = false;
       if (result.success && state && codeVerifier && redirectUri) {
         serverSide = provider === "xai"
-          ? registerXaiSession({ state, codeVerifier, redirectUri })
-          : registerCodexSession({ state, codeVerifier, redirectUri });
+          ? registerXaiSession({ state, codeVerifier, redirectUri, reauthConnectionId })
+          : registerCodexSession({ state, codeVerifier, redirectUri, reauthConnectionId });
       }
       return NextResponse.json({ ...result, serverSide });
     }
@@ -366,16 +380,31 @@ export async function POST(request, { params }) {
       const searchParams = new URL(request.url).searchParams;
       const state = searchParams.get("state") || body?.state;
       if (!state) return NextResponse.json({ error: "Missing state" }, { status: 400 });
+      if (!["trae", "windsurf", "zed"].includes(provider)) {
+        return NextResponse.json({ error: "register-session only supported for trae/windsurf/zed" }, { status: 400 });
+      }
+      const reauthConnectionId = body?.reauthConnectionId ?? null;
+      const reauthCheck = await validateReauthConnection(reauthConnectionId, provider);
+      if (!reauthCheck.ok) {
+        return NextResponse.json({ error: reauthCheck.error }, { status: reauthCheck.status });
+      }
       let ok = false;
-      if (provider === "trae") ok = registerTraeSession({ state });
-      else if (provider === "windsurf") ok = registerWindsurfSession({ state });
-      else if (provider === "zed") ok = registerZedSession({ state, codeVerifier: body?.codeVerifier, systemId: body?.systemId });
-      else return NextResponse.json({ error: "register-session only supported for trae/windsurf/zed" }, { status: 400 });
+      if (provider === "trae") ok = registerTraeSession({ state, reauthConnectionId });
+      else if (provider === "windsurf") ok = registerWindsurfSession({ state, reauthConnectionId });
+      else ok = registerZedSession({ state, codeVerifier: body?.codeVerifier, systemId: body?.systemId, reauthConnectionId });
       return NextResponse.json({ success: ok });
     }
 
     if (action === "exchange") {
       const { code, redirectUri, codeVerifier, state, meta, systemId } = body;
+      const reauthConnectionId = body.reauthConnectionId ?? meta?.reauthConnectionId;
+      const reauthCheck = await validateReauthConnection(reauthConnectionId, provider);
+      if (!reauthCheck.ok) {
+        return NextResponse.json({ error: reauthCheck.error }, { status: reauthCheck.status });
+      }
+      const exchangeMeta = meta && typeof meta === "object"
+        ? Object.fromEntries(Object.entries(meta).filter(([k]) => k !== "reauthConnectionId"))
+        : undefined;
 
       // Xiaomi MiMo: no token exchange needed — the callback already decrypted the sk.
       // Just read the session result and create the connection.
@@ -403,7 +432,7 @@ export async function POST(request, { params }) {
         }
 
         try {
-          const connection = await createProviderConnection({
+          const connection = await saveOAuthConnection({
             provider: "xiaomi-mimo",
             authType: "oauth",
             accessToken,
@@ -420,7 +449,7 @@ export async function POST(request, { params }) {
               mimoCUserId: passToken?.cUserId || null,
             },
             testStatus: "active",
-          });
+          }, reauthConnectionId);
           clearXiaomiMimoSession(state);
           stopXiaomiMimoProxy();
           return NextResponse.json({
@@ -435,7 +464,7 @@ export async function POST(request, { params }) {
         } catch (err) {
           clearXiaomiMimoSession(state);
           stopXiaomiMimoProxy();
-          return NextResponse.json({ error: err.message }, { status: 500 });
+          return NextResponse.json({ error: err.message }, { status: err.status || 500 });
         }
       }
 
@@ -448,7 +477,7 @@ export async function POST(request, { params }) {
         }
         try {
           const tokenData = await exchangeTokens(provider, token, null, null, state);
-          const connection = await createProviderConnection({
+          const connection = await saveOAuthConnection({
             provider,
             authType: provider === "windsurf" ? "api_key" : "oauth",
             ...tokenData,
@@ -456,7 +485,7 @@ export async function POST(request, { params }) {
               ? new Date(Date.now() + tokenData.expiresIn * 1000).toISOString()
               : null,
             testStatus: "active",
-          });
+          }, reauthConnectionId);
           return NextResponse.json({
             success: true,
             connection: {
@@ -467,7 +496,7 @@ export async function POST(request, { params }) {
             }
           });
         } catch (err) {
-          return NextResponse.json({ error: err.message }, { status: 500 });
+          return NextResponse.json({ error: err.message }, { status: err.status || 500 });
         }
       }
 
@@ -493,14 +522,14 @@ export async function POST(request, { params }) {
         if (accountId) providerSpecificData.chatgptAccountId = accountId;
         if (planType) providerSpecificData.chatgptPlanType = planType;
 
-        const connection = await createProviderConnection({
+        const connection = await saveOAuthConnection({
           provider,
           authType: "access_token",
           accessToken: code,
           email: email || null,
           providerSpecificData,
           testStatus: "active",
-        });
+        }, reauthConnectionId);
 
         return NextResponse.json({
           success: true,
@@ -523,12 +552,12 @@ export async function POST(request, { params }) {
       // systemId (Zed) is merged into meta so the login attempt's own id is
       // used instead of a freshly prepared one. Ignored by other providers.
       const tokenData = await exchangeTokens(provider, code, redirectUri, codeVerifier, state, {
-        ...(meta || {}),
+        ...(exchangeMeta || {}),
         ...(systemId ? { systemId } : {}),
       });
 
       // Save to database
-      const connection = await createProviderConnection({
+      const connection = await saveOAuthConnection({
         provider,
         authType: "oauth",
         ...tokenData,
@@ -536,7 +565,7 @@ export async function POST(request, { params }) {
           ? new Date(Date.now() + tokenData.expiresIn * 1000).toISOString() 
           : null,
         testStatus: "active",
-      });
+      }, reauthConnectionId);
 
       return NextResponse.json({ 
         success: true, 
@@ -550,10 +579,16 @@ export async function POST(request, { params }) {
     }
 
     if (action === "poll") {
-      const { deviceCode, codeVerifier, extraData } = body;
+      const { deviceCode, codeVerifier, extraData, reauthConnectionId } = body;
 
       if (!deviceCode) {
         return NextResponse.json({ error: "Missing device code" }, { status: 400 });
+      }
+
+      const providerId = provider === "kimi-coding" ? "kimi" : provider;
+      const reauthCheck = await validateReauthConnection(reauthConnectionId, providerId);
+      if (!reauthCheck.ok) {
+        return NextResponse.json({ error: reauthCheck.error }, { status: reauthCheck.status });
       }
 
       // Providers that don't use PKCE for device code
@@ -583,8 +618,7 @@ export async function POST(request, { params }) {
 
       if (result.success) {
         // Save to database (legacy kimi-coding OAuth → dual-auth kimi)
-        const providerId = provider === "kimi-coding" ? "kimi" : provider;
-        const connection = await createProviderConnection({
+        const connection = await saveOAuthConnection({
           provider: providerId,
           authType: "oauth",
           ...result.tokens,
@@ -592,7 +626,7 @@ export async function POST(request, { params }) {
             ? new Date(Date.now() + result.tokens.expiresIn * 1000).toISOString() 
             : null,
           testStatus: "active",
-        });
+        }, reauthConnectionId);
 
         return NextResponse.json({ 
           success: true, 
@@ -620,14 +654,14 @@ export async function POST(request, { params }) {
       if (provider !== "xai") {
         return NextResponse.json({ error: "Manual code only supported for xai" }, { status: 400 });
       }
-      const { code, state } = body;
-      const connection = await completeXaiManualCode(String(code || "").trim(), String(state || "").trim());
+      const { code, state, reauthConnectionId } = body;
+      const connection = await completeXaiManualCode(String(code || "").trim(), String(state || "").trim(), reauthConnectionId);
       return NextResponse.json({ success: true, connection });
     }
 
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (error) {
     console.log("OAuth POST error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message }, { status: error.status || 500 });
   }
 }
