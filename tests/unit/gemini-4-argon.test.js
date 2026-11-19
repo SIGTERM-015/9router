@@ -76,3 +76,41 @@ describe("Gemini 4 Argon Antigravity tier", () => {
     expect(finalBody.request.generationConfig.thinkingConfig).toEqual({ thinkingLevel: expectedLevel, includeThoughts: true });
   });
 });
+
+describe("Gemini 4 Neon", () => {
+  it.each(["gemini", "vertex"])("declares low..xhigh always-on reasoning on %s", (provider) => {
+    const caps = getCapabilitiesForModel(provider, "gemini-4-neon");
+    expect(caps.thinkingFormat).toBe("gemini-level");
+    expect(caps.thinkingCanDisable).toBe(false);
+    expect(getThinkingLevels(provider, "gemini-4-neon")).toEqual(["low", "medium", "high", "xhigh"]);
+  });
+
+  it("passes xhigh through and still clamps none to low", () => {
+    const xhigh = { reasoning_effort: "xhigh" };
+    applyThinking("gemini", "gemini-4-neon", xhigh, "vertex");
+    expect(xhigh.generationConfig.thinkingConfig).toEqual({ thinkingLevel: "xhigh", includeThoughts: true });
+    const none = { reasoning_effort: "none" };
+    applyThinking("gemini", "gemini-4-neon", none, "vertex");
+    expect(none.generationConfig.thinkingConfig).toEqual({ thinkingLevel: "low", includeThoughts: true });
+  });
+
+  it("keeps xhigh capped to high on Argon", () => {
+    const body = { reasoning_effort: "xhigh" };
+    applyThinking("gemini", "gemini-4-argon", body, "vertex");
+    expect(body.generationConfig.thinkingConfig.thinkingLevel).toBe("high");
+  });
+
+  it.each([
+    ["gemini-4-neon-xhigh", "xhigh"],
+    ["gemini-4-neon-high", "high"],
+    ["gemini-4-neon-low", "low"],
+  ])("maps Antigravity %s to a %s thinking level", (modelId, level) => {
+    const upstreamModel = getModelUpstreamId("ag", modelId);
+    expect(upstreamModel).toBe(`${modelId}(${level})`);
+    const body = { model: stripThinkingSuffix(upstreamModel), request: { contents: [{ role: "user", parts: [{ text: "hi" }] }], generationConfig: {} } };
+    applyThinking("antigravity", upstreamModel, body, "antigravity");
+    const finalBody = new AntigravityExecutor().transformRequest(modelId, body, true, { projectId: "p", connectionId: "c" });
+    expect(finalBody.model).toBe(modelId);
+    expect(finalBody.request.generationConfig.thinkingConfig).toEqual({ thinkingLevel: level, includeThoughts: true });
+  });
+});

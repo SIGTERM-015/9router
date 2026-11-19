@@ -78,6 +78,7 @@ export default {
     { id: "claude-sonnet-5.5", name: "Claude Sonnet 5.5" },
     { id: "gemini-3.7-flash", name: "Gemini 3.7 Flash" },
     { id: "gemini-3.8-flash", name: "Gemini 3.8 Flash" },
+    { id: "gemini-4-neon", name: "Gemini 4 Neon" },
     { id: "gemini-4-argon", name: "Gemini 4 Argon" },
     { id: "kimi-k3", name: "Kimi K3" },
     { id: "mai-code-1.1-flash", name: "MAI-Code-1.1-Flash" },
