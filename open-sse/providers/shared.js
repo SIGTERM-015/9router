@@ -100,6 +100,12 @@ export const ANTIGRAVITY_IDE_VERSION = "2.24.0";
 export const ANTIGRAVITY_IDE_BASE_URL = "https://daily-cloudcode-pa.googleapis.com";
 export const ANTIGRAVITY_IDE_USER_AGENT = `antigravity/hub/${ANTIGRAVITY_IDE_VERSION} darwin/arm64`;
 
+// Enterprise Antigravity accounts (Gemini Enterprise licenses) are served by Business AI Code,
+// not Cloud Code. It is regional: the global host answers "Request location eu is not served by
+// the global endpoint". `license` is the selfAssignLicense result: { userTier, projectId, location }.
+export const antigravityEnterpriseUrl = (license, method) =>
+  `https://businessaicode.${license.location}.rep.googleapis.com/v1beta/projects/${license.projectId}/locations/${license.location}:${method}`;
+
 // Antigravity OAuth client credentials (public CLI client — duplicated in usage.js + src/lib/oauth)
 export const ANTIGRAVITY_OAUTH_CLIENT = {
   clientId: "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com",

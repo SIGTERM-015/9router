@@ -3,9 +3,9 @@
  */
 
 import { CLIENT_METADATA } from "../../config/appConstants.js";
-import { ANTIGRAVITY_IDE_USER_AGENT, ANTIGRAVITY_IDE_VERSION, ANTIGRAVITY_OAUTH_CLIENT } from "../../providers/shared.js";
+import { ANTIGRAVITY_IDE_USER_AGENT, ANTIGRAVITY_IDE_VERSION, ANTIGRAVITY_OAUTH_CLIENT, antigravityEnterpriseUrl } from "../../providers/shared.js";
 import { U, parseResetTime, normalizeCloudCodeProjectId, fetchWithTimeout } from "./shared.js";
-import { fetchAntigravityWeeklyQuota } from "./antigravity-weekly.js";
+import { fetchAntigravityWeeklyQuota, parseWeeklyQuotaSummary } from "./antigravity-weekly.js";
 
 // Antigravity API config (from Quotio) — urls from registry, oauth client + dynamic UA kept here
 const ANTIGRAVITY_CONFIG = {
@@ -118,6 +118,8 @@ async function getGeminiSubscriptionInfo(accessToken, proxyOptions = null) {
  * Antigravity Usage - Fetch quota from Google Cloud Code API
  */
 export async function getAntigravityUsage(accessToken, providerSpecificData, proxyOptions = null) {
+  const license = providerSpecificData?.enterpriseLicense;
+  if (license) return getAntigravityEnterpriseUsage(accessToken, license, proxyOptions);
   try {
     // Fetch subscription info once — reuse for both projectId and plan
     const subscriptionInfo = await getAntigravitySubscriptionInfo(accessToken, proxyOptions);
@@ -331,5 +333,34 @@ async function getAntigravitySubscriptionInfo(accessToken, proxyOptions = null) 
   } catch (error) {
     console.error("[Antigravity Subscription] Error:", error.message);
     return null;
+  }
+}
+
+/**
+ * Enterprise Antigravity usage — Business AI Code fetchQuotaStatus. Its `groups[].buckets` have the
+ * retrieveUserQuotaSummary shape ("Gemini Enterprise Quota" → weekly bucket), so they map onto the
+ * same gemini_* keys the dashboard and quota routing already read.
+ */
+async function getAntigravityEnterpriseUsage(accessToken, license, proxyOptions = null) {
+  const plan = license.tierDisplayName || license.userTier;
+  try {
+    const url = `${antigravityEnterpriseUrl(license, "fetchQuotaStatus")}?entitlement.userTier=${encodeURIComponent(license.userTier)}`;
+    const response = await fetchWithTimeout(url, {
+      method: "GET",
+      headers: {
+        "Authorization": `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "x-request-source": "local",
+      },
+    }, 10000, proxyOptions);
+
+    if (response.status === 401 || response.status === 403) {
+      return { plan, message: `Antigravity enterprise quota API error (${response.status}). Chat may still work.`, quotas: {} };
+    }
+    if (!response.ok) throw new Error(`Antigravity enterprise API error: ${response.status}`);
+
+    return { plan, quotas: parseWeeklyQuotaSummary(await response.json()) };
+  } catch (error) {
+    return { message: `Antigravity error: ${error.message}` };
   }
 }

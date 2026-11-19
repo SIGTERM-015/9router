@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
 import { getProviderConnectionById } from "@/models";
 import { isOpenAICompatibleProvider, isAnthropicCompatibleProvider } from "@/shared/constants/providers";
-import { GEMINI_CONFIG, ZED_HOSTED_CONFIG } from "@/lib/oauth/constants/oauth";
+import { GEMINI_CONFIG, ANTIGRAVITY_CONFIG, ZED_HOSTED_CONFIG } from "@/lib/oauth/constants/oauth";
+import { fetchAntigravityEnterpriseConfig, parseEnterpriseConfigModels } from "open-sse/services/antigravityEnterprise.js";
 import { refreshGoogleToken, refreshCodexToken, updateProviderCredentials } from "@/sse/services/tokenRefresh";
 import { resolveOllamaLocalHost } from "open-sse/config/providers.js";
 import { getModelsByProviderId } from "open-sse/config/providerModels.js";
@@ -233,6 +234,15 @@ const PROVIDER_MODELS_CONFIG = {
     authPrefix: "Bearer ",
     body: {},
     parseResponse: (data) => data.models || []
+  },
+  // Enterprise (Business AI Code) connections: the admin-allowed experiences from fetchConfig.
+  "antigravity-enterprise": {
+    customResolver: buildOAuthResolver({
+      refreshFn: (conn) => refreshGoogleToken(conn.refreshToken, ANTIGRAVITY_CONFIG.clientId, ANTIGRAVITY_CONFIG.clientSecret),
+      fetchFn: (token, conn) => fetchAntigravityEnterpriseConfig(token, conn.providerSpecificData.enterpriseLicense),
+      parseFn: parseEnterpriseConfigModels,
+      errorLabel: "Failed to fetch Antigravity enterprise models"
+    })
   },
   github: {
     url: "https://api.githubcopilot.com/models",
@@ -645,7 +655,7 @@ export async function GET(request, { params }) {
       });
     }
 
-    const config = PROVIDER_MODELS_CONFIG[connection.provider];
+    const config = PROVIDER_MODELS_CONFIG[connection.providerSpecificData?.enterpriseLicense ? "antigravity-enterprise" : connection.provider];
     if (!config) {
       return NextResponse.json(
         { error: `Provider ${connection.provider} does not support models listing` },
