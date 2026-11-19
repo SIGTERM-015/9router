@@ -12,6 +12,22 @@ const headers = (accessToken) => ({
 });
 
 /**
+ * Every Gemini Enterprise license the signed-in user holds, as
+ * { userTier, tierDisplayName, projectId, location }. This is how an enterprise account is found
+ * on OAuth alone: no consumer endpoint ever names its Cloud project (`loadCodeAssist` returns
+ * cloudaicompanionProject: null), and `projects/-` is denied.
+ */
+export async function fetchAntigravityLicenses(accessToken) {
+  const response = await fetch("https://businessaicode.googleapis.com/v1beta:fetchLicenses", {
+    method: "GET",
+    headers: headers(accessToken),
+  });
+  if (!response.ok) return [];
+  const { licenses } = await response.json();
+  return (licenses || []).filter(license => license?.userTier && license?.projectId && license?.location);
+}
+
+/**
  * Assign (or read back) the account's Gemini Enterprise license for a project + location.
  * Returns { userTier, tierDisplayName, projectId, location } or null when the account has none.
  */

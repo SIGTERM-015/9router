@@ -1,5 +1,5 @@
 import { ANTIGRAVITY_CONFIG, getOAuthClientMetadata } from "../constants/oauth.js";
-import { selfAssignAntigravityLicense } from "open-sse/services/antigravityEnterprise.js";
+import { fetchAntigravityLicenses, selfAssignAntigravityLicense } from "open-sse/services/antigravityEnterprise.js";
 
 const antigravity = {
   config: ANTIGRAVITY_CONFIG,
@@ -39,9 +39,9 @@ const antigravity = {
 
     return await response.json();
   },
-  // meta.projectId + meta.location: the Google Cloud project and location holding the account's
-  // Gemini Enterprise license. Enterprise accounts get no project from loadCodeAssist, so they
-  // can only be detected when the caller names one.
+  // An enterprise account is one with a Gemini Enterprise license: `fetchLicenses` names its project
+  // and location on the OAuth token alone. meta.projectId + meta.location pin one when the user holds
+  // several (it is then assigned rather than read back).
   postExchange: async (tokens, meta = {}) => {
     const userInfoRes = await fetch(`${ANTIGRAVITY_CONFIG.userInfoUrl}?alt=json`, {
       headers: {
@@ -51,10 +51,14 @@ const antigravity = {
     });
     const userInfo = userInfoRes.ok ? await userInfoRes.json() : {};
 
+    let enterpriseLicense = null;
     if (meta.projectId && meta.location) {
-      const enterpriseLicense = await selfAssignAntigravityLicense(tokens.access_token, meta.projectId, meta.location);
-      if (enterpriseLicense) return { userInfo, projectId: enterpriseLicense.projectId, enterpriseLicense };
+      enterpriseLicense = await selfAssignAntigravityLicense(tokens.access_token, meta.projectId, meta.location);
+    } else {
+      const [found] = await fetchAntigravityLicenses(tokens.access_token);
+      if (found) enterpriseLicense = (await selfAssignAntigravityLicense(tokens.access_token, found.projectId, found.location)) || found;
     }
+    if (enterpriseLicense) return { userInfo, projectId: enterpriseLicense.projectId, enterpriseLicense };
 
     const loadHeaders = {
       "Authorization": `Bearer ${tokens.access_token}`,

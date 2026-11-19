@@ -10,7 +10,7 @@ vi.mock("../../open-sse/utils/proxyFetch.js", () => ({ proxyAwareFetch }));
 
 import { AntigravityExecutor, enterpriseModelName } from "../../open-sse/executors/antigravity.js";
 import { getAntigravityUsage } from "../../open-sse/services/usage/google.js";
-import { parseEnterpriseConfigModels, selfAssignAntigravityLicense } from "../../open-sse/services/antigravityEnterprise.js";
+import { fetchAntigravityLicenses, parseEnterpriseConfigModels, selfAssignAntigravityLicense } from "../../open-sse/services/antigravityEnterprise.js";
 import antigravityOAuth from "../../src/lib/oauth/providers/antigravity.js";
 
 const LICENSE = { userTier: "gcp-ge-plus-tier", tierDisplayName: "Gemini Enterprise Plus", projectId: "acme-proj", location: "eu" };
@@ -216,17 +216,50 @@ describe("enterprise onboarding", () => {
     });
   });
 
+  it("detects an enterprise account from fetchLicenses alone", async () => {
+    fetchMock.mockImplementation(async (url) => {
+      if (String(url).includes("/userinfo")) return json({ email: "dev@acme.test" });
+      if (String(url).endsWith("v1beta:fetchLicenses")) return json({ licenses: [LICENSE] });
+      if (String(url).includes(":selfAssignLicense")) return json({ license: LICENSE });
+      throw new Error(`unexpected ${url}`);
+    });
+
+    const extra = await antigravityOAuth.postExchange({ access_token: "tok" });
+    const mapped = antigravityOAuth.mapTokens({ access_token: "tok", refresh_token: "r", expires_in: 3600 }, extra);
+
+    expect(fetchMock.mock.calls.map(([url]) => String(url))).toEqual([
+      "https://www.googleapis.com/oauth2/v1/userinfo?alt=json",
+      "https://businessaicode.googleapis.com/v1beta:fetchLicenses",
+      "https://businessaicode.googleapis.com/v1beta/projects/acme-proj/locations/eu:selfAssignLicense",
+    ]);
+    expect(mapped).toMatchObject({
+      email: "dev@acme.test",
+      projectId: "acme-proj",
+      providerSpecificData: { enterpriseLicense: LICENSE },
+    });
+  });
+
+  it("fetchLicenses returns [] when the endpoint fails", async () => {
+    fetchMock.mockResolvedValue(json({ error: { code: 403 } }, 403));
+    expect(await fetchAntigravityLicenses("tok")).toEqual([]);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://businessaicode.googleapis.com/v1beta:fetchLicenses");
+    expect(init.method).toBe("GET");
+  });
+
   it("falls back to the consumer flow without a project/location", async () => {
     fetchMock.mockImplementation(async (url) => {
       if (String(url).includes("/userinfo")) return json({ email: "dev@gmail.test" });
+      if (String(url).endsWith("v1beta:fetchLicenses")) return json({ licenses: [] });
       if (String(url).includes(":loadCodeAssist")) return json({ cloudaicompanionProject: null, allowedTiers: [] });
+      if (String(url).includes(":onboardUser")) return json({ done: true });
       throw new Error(`unexpected ${url}`);
     });
 
     const extra = await antigravityOAuth.postExchange({ access_token: "tok" });
     const mapped = antigravityOAuth.mapTokens({ access_token: "tok" }, extra);
 
-    expect(fetchMock.mock.calls.some(([url]) => String(url).includes("businessaicode"))).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes(":selfAssignLicense"))).toBe(false);
     expect(mapped).not.toHaveProperty("providerSpecificData");
   });
 });
