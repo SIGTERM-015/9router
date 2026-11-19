@@ -1,7 +1,15 @@
+export const REAUTH_ELIGIBLE_STATUSES = new Set(["error", "expired", "unavailable"]);
+
+export function shouldShowReauthenticate({ isOAuth, isActive, effectiveStatus }) {
+  if (!isOAuth) return false;
+  if (isActive === false) return false;
+  return REAUTH_ELIGIBLE_STATUSES.has(effectiveStatus);
+}
+
 export function getStatusVariant(isActive, effectiveStatus) {
   if (isActive === false) return "default";
   if (effectiveStatus === "active" || effectiveStatus === "success") return "success";
-  if (effectiveStatus === "error" || effectiveStatus === "expired" || effectiveStatus === "unavailable") return "error";
+  if (REAUTH_ELIGIBLE_STATUSES.has(effectiveStatus)) return "error";
   return "default";
 }
 
