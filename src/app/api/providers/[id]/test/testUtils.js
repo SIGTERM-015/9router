@@ -22,6 +22,7 @@ import {
 import {
   GEMINI_CONFIG,
   ANTIGRAVITY_CONFIG,
+  ANTIGRAVITY_ENTERPRISE_CONFIG,
   KIRO_CONFIG,
   CLAUDE_CONFIG,
   CLINE_CONFIG,
@@ -58,6 +59,14 @@ const OAUTH_TEST_CONFIG = {
     method: "GET",
     authHeader: "Authorization",
     authPrefix: "Bearer ",
+    refreshable: true,
+  },
+  "antigravity-enterprise": {
+    url: "https://businessaicode.googleapis.com/v1beta:fetchLicenses",
+    method: "GET",
+    authHeader: "Authorization",
+    authPrefix: "Bearer ",
+    extraHeaders: { "Content-Type": "application/json", "x-request-source": "local" },
     refreshable: true,
   },
   github: {
@@ -268,8 +277,12 @@ async function refreshOAuthToken(connection) {
   if (!refreshToken) return null;
 
   try {
-    if (provider === "gemini-cli" || provider === "antigravity") {
-      const config = provider === "gemini-cli" ? GEMINI_CONFIG : ANTIGRAVITY_CONFIG;
+    if (provider === "gemini-cli" || provider === "antigravity" || provider === "antigravity-enterprise") {
+      const config = provider === "gemini-cli"
+        ? GEMINI_CONFIG
+        : provider === "antigravity-enterprise"
+          ? ANTIGRAVITY_ENTERPRISE_CONFIG
+          : ANTIGRAVITY_CONFIG;
       const response = await fetch("https://oauth2.googleapis.com/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },

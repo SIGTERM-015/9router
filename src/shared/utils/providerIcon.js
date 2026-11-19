@@ -11,6 +11,8 @@ const ICON_ALIASES = {
   "minimax-code-global": "minimax",
   // Zen is the same opencode.ai brand
   "opencode-zen": "opencode",
+  // Gemini Enterprise shares the Antigravity brand mark
+  "antigravity-enterprise": "antigravity",
   // Web-cookie variants ride their brand's existing mark
   "deepseek-web": "deepseek",
   "muse-web": "muse",

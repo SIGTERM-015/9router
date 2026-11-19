@@ -9,7 +9,7 @@ import { getCredentialExpiryMs } from "open-sse/services/oauthCredentialManager.
 export const BACKGROUND_REFRESH_LEAD_MS = 30 * 60 * 1000;
 const DEFAULT_INTERVAL_MS = 5 * 60 * 1000;
 const INITIAL_DELAY_MS = 10 * 1000;
-const SENSITIVE_PROVIDERS = new Set(["antigravity", "gemini-cli"]);
+const SENSITIVE_PROVIDERS = new Set(["antigravity", "antigravity-enterprise", "gemini-cli"]);
 
 let started = false;
 let intervalHandle = null;

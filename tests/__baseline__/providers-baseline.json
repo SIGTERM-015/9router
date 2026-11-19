@@ -52,6 +52,27 @@
     "clientSecret": "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",
     "tokenUrl": "https://oauth2.googleapis.com/token"
   },
+  "antigravity-enterprise": {
+    "baseUrls": [
+      "https://businessaicode.googleapis.com"
+    ],
+    "format": "antigravity",
+    "retry": {
+      "429": {
+        "attempts": 3
+      },
+      "500": {
+        "attempts": 3
+      },
+      "503": {
+        "attempts": 3
+      }
+    },
+    "usage": {
+      "tokenUrl": "https://oauth2.googleapis.com/token"
+    },
+    "tokenUrl": "https://oauth2.googleapis.com/token"
+  },
   "assemblyai": {
     "baseUrl": "https://api.assemblyai.com/v1/audio/transcriptions",
     "validateUrl": "https://api.assemblyai.com/v1/account",

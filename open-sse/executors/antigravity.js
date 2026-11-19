@@ -8,8 +8,6 @@ import { proxyAwareFetch } from "../utils/proxyFetch.js";
 import { cleanJSONSchemaForAntigravity, normalizeGeminiContents } from "../translator/formats/gemini.js";
 import { DEFAULT_THINKING_AG_SIGNATURE } from "../config/defaultThinkingSignature.js";
 import { getGeminiThoughtSignatureSync } from "../services/thoughtSignatureStore.js";
-import { antigravityEnterpriseUrl } from "../providers/shared.js";
-import { getModelUpstreamId, PROVIDER_MODELS } from "../config/providerModels.js";
 
 // Sanitize function name: Gemini requires [a-zA-Z_][a-zA-Z0-9_.:\-]{0,63}
 function sanitizeFunctionName(name) {
@@ -65,7 +63,7 @@ const IMAGE_MODEL_PATTERNS = [
 ];
 
 // Detect if a model is an image generation model
-function isImageModel(model) {
+export function isImageModel(model) {
   if (!model) return false;
   return IMAGE_MODEL_PATTERNS.some(p => p.test(model));
 }
@@ -91,32 +89,6 @@ function parseImageConfig(model) {
   return config;
 }
 
-// Business AI Code only accepts the admin config's experience names (e.g. "gemini-4-carbon-high"),
-// never Cloud Code ids with a thinking preset ("gemini-4-carbon-medium(medium)"). `model` is the
-// 9router id; ids that already end in a level are experience names as-is.
-const LEVEL_TAIL_RE = /-(low|medium|high|xhigh)$/;
-const SUFFIX_RE = /\(([^()]+)\)\s*$/;
-
-export function enterpriseModelName(model) {
-  const base = model.replace(SUFFIX_RE, "").trim();
-  if (LEVEL_TAIL_RE.test(base)) return base;
-  const level = model.match(SUFFIX_RE)?.[1].trim().toLowerCase();
-  if (level) return `${base}-${level}`;
-  // Level-less alias: the level its registry entry defaults to ("gemini-4-carbon" → medium), or the
-  // levelled id sharing its upstream ("gemini-pro-agent" → "gemini-3.1-pro-high").
-  const upstream = getModelUpstreamId("ag", base).replace(SUFFIX_RE, "").trim();
-  if (LEVEL_TAIL_RE.test(upstream)) return upstream;
-  const sibling = PROVIDER_MODELS.ag?.find(m => m.upstreamModelId === upstream && LEVEL_TAIL_RE.test(m.id));
-  return sibling?.id || base;
-}
-
-// Business AI Code takes a bare Gemini request plus the license entitlement. It rejects the
-// Cloud Code envelope (project, requestId, userAgent), `sessionId` and the VALIDATED tool mode.
-function enterpriseBody(model, request, license) {
-  const { sessionId: _sessionId, toolConfig: _toolConfig, ...rest } = request;
-  return { model, ...rest, entitlement: { userTier: license.userTier } };
-}
-
 function uuidFromSeed(seed) {
   const bytes = crypto.createHash("sha256").update(String(seed || "antigravity")).digest().subarray(0, 16);
   bytes[6] = (bytes[6] & 0x0f) | 0x50;
@@ -139,8 +111,8 @@ function buildIdeRequestId({ body, request, credentials, model, requestType }) {
 }
 
 export class AntigravityExecutor extends BaseExecutor {
-  constructor() {
-    super("antigravity", PROVIDERS.antigravity);
+  constructor(provider = "antigravity", config = PROVIDERS.antigravity) {
+    super(provider, config);
   }
 
   // Parse Antigravity quota error to extract precise resetsAtMs from ErrorInfo/RetryInfo
@@ -178,12 +150,10 @@ export class AntigravityExecutor extends BaseExecutor {
     return super.parseError(response, bodyText);
   }
 
-  buildUrl(model, stream, urlIndex = 0, credentials = null) {
+  buildUrl(model, stream, urlIndex = 0) {
     // Image generation MUST use non-streaming generateContent
     const forceNonStream = isImageModel(model);
     const action = (stream && !forceNonStream) ? "streamGenerateContent?alt=sse" : "generateContent";
-    const license = credentials?.providerSpecificData?.enterpriseLicense;
-    if (license) return antigravityEnterpriseUrl(license, action);
     const baseUrls = this.getBaseUrls();
     const baseUrl = baseUrls[urlIndex] || baseUrls[0];
     return `${baseUrl}/v1internal:${action}`;
@@ -192,13 +162,6 @@ export class AntigravityExecutor extends BaseExecutor {
   // sessionId comes from transformRequest output; base.execute runs transformRequest before
   // buildHeaders, so we read it from instance state cached there (fallback: explicit arg).
   buildHeaders(credentials, stream = true, sessionId = null) {
-    if (credentials?.providerSpecificData?.enterpriseLicense) {
-      return {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${credentials.accessToken}`,
-        "x-request-source": "local",
-      };
-    }
     return {
       "Content-Type": "application/json",
       "Authorization": `Bearer ${credentials.accessToken}`,
@@ -206,10 +169,7 @@ export class AntigravityExecutor extends BaseExecutor {
     };
   }
 
-  transformRequest(model, body, stream, credentials) {
-    const projectId = credentials?.projectId || this.generateProjectId();
-    const license = credentials?.providerSpecificData?.enterpriseLicense;
-
+  prepareRequestBody(model, body, stream, credentials) {
     // OpenAI clients may include stream_options even for non-streaming calls.
     // Google generateContent rejects that combination before processing the request.
     if (stream !== true) delete body.stream_options;
@@ -238,7 +198,7 @@ export class AntigravityExecutor extends BaseExecutor {
         headers: credentials?.rawHeaders,
         body,
         connectionId: credentials?.email || credentials?.connectionId,
-        scope: "antigravity",
+        scope: this.provider,
       });
 
       this._lastSessionId = sessionId;
@@ -254,19 +214,10 @@ export class AntigravityExecutor extends BaseExecutor {
         sessionId,
         // No tools, no systemInstruction, no safetySettings for image gen
       };
-      if (license) return enterpriseBody(cleanModel, request, license);
-
-      return {
-        project: projectId,
-        model: cleanModel,
-        userAgent: "antigravity",
-        requestType: "image_gen",
-        requestId: buildIdeRequestId({ body, request, credentials, model: cleanModel, requestType: "image_gen" }),
-        request,
-      };
+      return { isImage: true, cleanModel, request };
     }
 
-    const rawSessionId = body.request?.sessionId || resolveSessionId({ headers: credentials?.rawHeaders, body, connectionId: credentials?.email || credentials?.connectionId, scope: "antigravity" });
+    const rawSessionId = body.request?.sessionId || resolveSessionId({ headers: credentials?.rawHeaders, body, connectionId: credentials?.email || credentials?.connectionId, scope: this.provider });
     const sessionId = toNumericSessionId(rawSessionId) || rawSessionId;
 
     // ─── Standard (non-image) request ───
@@ -379,15 +330,31 @@ export class AntigravityExecutor extends BaseExecutor {
     // `search` buckets are unaffected and keep their own requestType.
     delete body.requestType;
 
-    if (license) return enterpriseBody(enterpriseModelName(model), transformedRequest, license);
+    return { isImage: false, cleanModel: model, request: transformedRequest };
+  }
+
+  transformRequest(model, body, stream, credentials) {
+    const projectId = credentials?.projectId || this.generateProjectId();
+    const { isImage, cleanModel, request } = this.prepareRequestBody(model, body, stream, credentials);
+
+    if (isImage) {
+      return {
+        project: projectId,
+        model: cleanModel,
+        userAgent: "antigravity",
+        requestType: "image_gen",
+        requestId: buildIdeRequestId({ body, request, credentials, model: cleanModel, requestType: "image_gen" }),
+        request,
+      };
+    }
 
     return {
       ...body,
       project: projectId,
       model: body.model || model,
       userAgent: "antigravity",
-      requestId: buildIdeRequestId({ body, request: transformedRequest, credentials, model, requestType: "agent" }),
-      request: transformedRequest
+      requestId: buildIdeRequestId({ body, request, credentials, model, requestType: "agent" }),
+      request,
     };
   }
 
@@ -409,7 +376,8 @@ export class AntigravityExecutor extends BaseExecutor {
       if (!response.ok) return null;
 
       const tokens = await response.json();
-      log?.info?.("TOKEN", "Antigravity refreshed");
+      const label = this.provider === "antigravity-enterprise" ? "Antigravity Enterprise" : "Antigravity";
+      log?.info?.("TOKEN", `${label} refreshed`);
 
       return {
         accessToken: tokens.access_token,
@@ -418,7 +386,8 @@ export class AntigravityExecutor extends BaseExecutor {
         projectId: credentials.projectId
       };
     } catch (error) {
-      log?.error?.("TOKEN", `Antigravity refresh error: ${error.message}`);
+      const label = this.provider === "antigravity-enterprise" ? "Antigravity Enterprise" : "Antigravity";
+      log?.error?.("TOKEN", `${label} refresh error: ${error.message}`);
       return null;
     }
   }

@@ -11,6 +11,7 @@ import grokCli from "./grok-cli.js";
 import muse from "./muse.js";
 import geminiCli from "./gemini-cli.js";
 import antigravity from "./antigravity.js";
+import antigravityEnterprise from "./antigravity-enterprise.js";
 import iflow from "./iflow.js";
 import qoder from "./qoder.js";
 import qoderCn from "./qoder-cn.js";
@@ -42,6 +43,7 @@ const PROVIDERS = {
   muse,
   "gemini-cli": geminiCli,
   antigravity,
+  "antigravity-enterprise": antigravityEnterprise,
   iflow,
   qoder,
   "qoder-cn": qoderCn,

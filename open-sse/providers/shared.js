@@ -112,6 +112,13 @@ export const ANTIGRAVITY_OAUTH_CLIENT = {
   clientSecret: "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"
 };
 
+// Gemini Enterprise (Business AI Code) OAuth client: the IDE's own client, supplied by the deployment
+// (ANTIGRAVITY_ENTERPRISE_CLIENT_ID / ANTIGRAVITY_ENTERPRISE_CLIENT_SECRET) so it is not stored in the repo.
+export const ANTIGRAVITY_ENTERPRISE_OAUTH_CLIENT = {
+  clientId: process.env.ANTIGRAVITY_ENTERPRISE_CLIENT_ID,
+  clientSecret: process.env.ANTIGRAVITY_ENTERPRISE_CLIENT_SECRET,
+};
+
 // Gemini (Google) OAuth client credentials (public CLI client — shared by gemini, gemini-cli, src/lib/oauth)
 export const GOOGLE_OAUTH_CLIENT = {
   clientId: "681255809395-oo8ft2oprdrnp9e3aqf6av3hmdib135j.apps.googleusercontent.com",

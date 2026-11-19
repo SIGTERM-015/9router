@@ -7,6 +7,11 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url));
 export default defineConfig({
   test: {
     environment: "node",
+    // Placeholders for the deployment-supplied Gemini Enterprise OAuth client.
+    env: {
+      ANTIGRAVITY_ENTERPRISE_CLIENT_ID: "enterprise-client-id.apps.googleusercontent.com",
+      ANTIGRAVITY_ENTERPRISE_CLIENT_SECRET: "enterprise-client-secret",
+    },
     globals: true,
     include: ["**/*.test.js"],
     // Don't scan into git worktrees nested under .claude/ — they carry their
