@@ -169,7 +169,7 @@ describe("catalog schema", () => {
     }
     expect(sent[0]["if-none-match"]).toBeUndefined();
     const written = JSON.parse(fs.readFileSync(catalogFile, "utf8"));
-    expect(written.v).toBe(2);
+    expect(written.v).toBe(3);
     expect(written.models["glm:glm-4.6v"]).toEqual({ vision: true });
   });
 

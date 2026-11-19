@@ -3,8 +3,10 @@
 // Fallback order (first match wins):
 //   1. PROVIDER_PRICING[provider][model]  — provider-specific override
 //   2. FREE_MODEL_NAMESPACES               — upstream bills these at $0
-//   3. MODEL_PRICING[model]               — canonical model price (provider-agnostic)
-//   4. PATTERN_PRICING                    — glob pattern match (e.g. "codex-*")
+//   3. models.dev catalog                  — synced daily (modelCatalog/prices.js), when the server installed it
+//   4. MODEL_PRICING[model]               — canonical model price (provider-agnostic), for models the catalog lacks
+//   5. PATTERN_PRICING                    — glob pattern match (e.g. "codex-*")
+// Prices the user sets in the dashboard sit above all of this (pricingRepo.getPricingForModel).
 
 /**
  * Namespaces upstream meters at $0. A free model must never inherit a paid
@@ -403,6 +405,17 @@ export const PATTERN_PRICING = [
   { pattern: "grok-*",          pricing: { input: 0.50,  output: 2.00,  cached: 0.25,  reasoning: 3.00,   cache_creation: 0.50  } },
 ];
 
+// Catalog reader, installed by the server at startup. The slot lives on globalThis because this
+// module is bundled into several route chunks, each with its own copy of module state (the same
+// reason capabilities.js does it); in the browser bundle it stays empty.
+export function setPriceSource(source) {
+  if (typeof globalThis !== "undefined") globalThis.__9rPriceSource = source;
+}
+
+function getPriceSource() {
+  return typeof globalThis !== "undefined" ? globalThis.__9rPriceSource || null : null;
+}
+
 /**
  * Match a model ID against a glob pattern (* = wildcard). Case-insensitive:
  * registry ids mix casing (e.g. "MiniMax-M2.5" vs "minimax-m2.5").
@@ -413,11 +426,12 @@ export function matchPattern(pattern, model) {
 }
 
 /**
- * Resolve pricing for a model using the 4-step fallback chain:
+ * Resolve pricing for a model using the 5-step fallback chain:
  *   1. PROVIDER_PRICING[provider][model]
  *   2. free namespace (upstream bills $0)
- *   3. MODEL_PRICING[model]
- *   4. PATTERN_PRICING (glob match)
+ *   3. models.dev catalog
+ *   4. MODEL_PRICING[model]
+ *   5. PATTERN_PRICING (glob match)
  *
  * @param {string} provider
  * @param {string} model
@@ -434,12 +448,16 @@ export function getPricingForModel(provider, model) {
   // 2. Free namespaces bill $0 regardless of the model name behind them.
   if (isFreeModel(model)) return ZERO_PRICING;
 
-  // 3. Canonical model pricing (strip vendor prefix if needed: "deepseek/deepseek-chat" → "deepseek-chat")
+  // 3. models.dev: the price a direct API customer pays, kept current by the daily sync.
+  const catalog = getPriceSource()?.getPricing(provider, model);
+  if (catalog) return catalog;
+
+  // 4. Canonical model pricing (strip vendor prefix if needed: "deepseek/deepseek-chat" → "deepseek-chat")
   const baseModel = model.includes("/") ? model.split("/").pop() : model;
   if (MODEL_PRICING[baseModel]) return MODEL_PRICING[baseModel];
   if (MODEL_PRICING[model]) return MODEL_PRICING[model];
 
-  // 4. Pattern match
+  // 5. Pattern match
   for (const { pattern, pricing } of PATTERN_PRICING) {
     if (matchPattern(pattern, baseModel) || matchPattern(pattern, model)) {
       return pricing;
@@ -473,12 +491,28 @@ export function formatCost(cost) {
  * @param {object} pricing
  * @returns {number} cost in dollars
  */
-export function calculateCostFromTokens(tokens, pricing) {
-  if (!tokens || !pricing) return 0;
+/**
+ * Rates for one request. A model with `tiers` charges a higher rate for the WHOLE request once its
+ * prompt is longer than the tier size (long-context surcharge, e.g. 200k): the largest tier the
+ * prompt exceeds applies.
+ */
+export function ratesForPrompt(pricing, promptTokens) {
+  const tier = (pricing.tiers || []).filter((t) => promptTokens > t.size).pop();
+  if (!tier) return pricing;
+  return {
+    ...pricing,
+    input: tier.input, output: tier.output, cached: tier.cached, cache_creation: tier.cache_creation,
+    reasoning: pricing.reasoning === pricing.output ? tier.output : pricing.reasoning,
+  };
+}
+
+export function calculateCostFromTokens(tokens, basePricing) {
+  if (!tokens || !basePricing) return 0;
 
   let cost = 0;
 
   const inputTokens = tokens.prompt_tokens || tokens.input_tokens || 0;
+  const pricing = ratesForPrompt(basePricing, inputTokens);
   const cachedTokens = tokens.cached_tokens || tokens.cache_read_input_tokens || 0;
   const cacheCreationTokens = tokens.cache_creation_input_tokens || 0;
   // prompt_tokens is cache-inclusive (see canonicalizeUsage): cached + cache_creation

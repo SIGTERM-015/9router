@@ -180,11 +180,12 @@ describe("trace sink", () => {
 });
 
 describe("schema", () => {
-  it("creates the three tables, each recompressed in place after 100 days", async () => {
+  it("creates the tables; the three that hold history recompress in place after 100 days", async () => {
     const { ensureSchema } = await import("@/lib/analytics/schema.js");
     await ensureSchema();
     const ddl = received.map((r) => r.query);
-    expect(ddl.map((q) => q.match(/CREATE TABLE IF NOT EXISTS (\w+)/)[1])).toEqual(["usage_events", "traces", "blobs"]);
-    for (const q of ddl) expect(q).toContain("INTERVAL 100 DAY RECOMPRESS CODEC(ZSTD(17))");
+    expect(ddl.map((q) => q.match(/CREATE TABLE IF NOT EXISTS (\w+)/)[1])).toEqual(["usage_events", "traces", "blobs", "prices"]);
+    for (const q of ddl.slice(0, 3)) expect(q).toContain("INTERVAL 100 DAY RECOMPRESS CODEC(ZSTD(17))");
+    expect(ddl[3]).not.toContain("TTL");
   });
 });

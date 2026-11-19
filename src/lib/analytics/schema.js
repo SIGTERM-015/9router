@@ -64,6 +64,28 @@ ORDER BY hash
 ${cold("first_seen")}`,
 ];
 
+SCHEMA.push(
+  // List prices per million tokens, from models.dev through the router's daily sync. A row with
+  // provider '' is the model's own price; a provider row overrides it for that gateway. Every sync
+  // inserts a full set stamped with synced_at, so prices can be re-read as of any sync.
+  `CREATE TABLE IF NOT EXISTS prices (
+  provider LowCardinality(String),
+  model_key String,
+  input Float64,
+  output Float64,
+  cache_read Float64,
+  cache_write Float64,
+  reasoning Float64,
+  tier_sizes Array(UInt64),      -- a prompt longer than tier_sizes[i] is billed at tier_*[i] for the whole request
+  tier_input Array(Float64),
+  tier_output Array(Float64),
+  tier_cache_read Array(Float64),
+  tier_cache_write Array(Float64),
+  synced_at DateTime
+) ENGINE = ReplacingMergeTree(synced_at)
+ORDER BY (provider, model_key, synced_at)`,
+);
+
 export async function ensureSchema() {
   for (const ddl of SCHEMA) await chExec(ddl);
 }
