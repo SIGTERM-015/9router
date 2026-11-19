@@ -138,6 +138,23 @@ describe("trace sink", () => {
     expect(JSON.parse(msg.content)).toEqual(m1);
   });
 
+  it("stores traces only for the API keys in TRACE_KEYS, but still ships their usage", async () => {
+    const db = await import("@/lib/db/index.js");
+    await db.initDb();
+    const { createApiKey } = await import("@/lib/db/repos/apiKeysRepo.js");
+    const mine = await createApiKey("mine", "m1");
+    const other = await createApiKey("someone-else", "m1");
+    process.env.TRACE_KEYS = "mine";
+    const { recordTrace, __test__ } = await import("@/lib/analytics/traceSink.js");
+    for (const [k, id] of [[mine, "a"], [other, "b"]]) {
+      await recordTrace(detail([{ role: "user", content: `from ${id}` }], { id, trace: { apiKey: k.key, endpoint: "/v1/messages", client: "claude" } }));
+    }
+    delete process.env.TRACE_KEYS;
+    await __test__.flush();
+    expect(rowsFor("traces").map((t) => [t.trace_id, t.api_key_name])).toEqual([["a", "mine"]]);
+    expect(rowsFor("blobs").filter((b) => b.kind === "message").map((b) => JSON.parse(b.content).content)).toEqual(["from a"]);
+  });
+
   it("skips the streaming placeholder and omits inline base64 data", async () => {
     const { recordTrace, __test__ } = await import("@/lib/analytics/traceSink.js");
     await recordTrace(detail([{ role: "user", content: "x" }], { response: { content: "[Streaming in progress...]", type: "streaming" } }));

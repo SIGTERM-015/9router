@@ -115,9 +115,19 @@ async function flush() {
 
 // Called for every finished request. Streaming placeholders are skipped: the final
 // record of the same request follows once the stream completes.
+// TRACE_KEYS (comma-separated API key names or ids) limits which keys get their prompts and
+// responses stored; unset means every key. Usage replication is unaffected.
+async function keyAllowed(detail) {
+  const allow = (process.env.TRACE_KEYS || "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (!allow.length) return true;
+  const id = await resolveIdentity(detail.trace?.apiKey, detail.connectionId);
+  return allow.includes(id.api_key_name) || allow.includes(id.api_key_id);
+}
+
 export async function recordTrace(detail) {
   if (process.env.TRACE_CAPTURE === "off") return;
   if (detail.response?.content === PLACEHOLDER) return;
+  if (!(await keyAllowed(detail))) return;
   const trace = await buildTrace(detail);
   traces.push(trace);
   bytes += trace.response.length + trace.params.length;
