@@ -5,6 +5,7 @@ import { HTTP_STATUS } from "../../config/runtimeConfig.js";
 import { FORMATS } from "../../translator/formats.js";
 import { openAICompletionToClaudeMessage } from "../../translator/concerns/claudeMessage.js";
 import { PROVIDERS } from "../../config/providers.js";
+import { traceContext } from "./traceContext.js";
 import { buildRequestDetail, extractRequestConfig, saveUsageStats, formatDoneLine } from "./requestDetail.js";
 import { ROLE, RESPONSES_ITEM } from "../../translator/schema/index.js";
 import { extractReasoningText } from "../../translator/concerns/reasoning.js";
@@ -196,6 +197,7 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
   const ctx = {
     provider, model, connectionId,
     request: extractRequestConfig(body, stream),
+    trace: traceContext(apiKey, clientRawRequest, body),
     providerRequest: finalBody || translatedBody || null
   };
 
