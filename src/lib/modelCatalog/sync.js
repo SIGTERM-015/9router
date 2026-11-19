@@ -6,7 +6,8 @@
 
 import fs from "node:fs";
 import path from "node:path";
-import { CATALOG_FILE, CATALOG_RAW_FILE, CATALOG_VERSION, invalidateCatalog, installCatalogSource } from "open-sse/providers/catalogOverride.js";
+import { build as buildPrices } from "./prices.js";
+import { CATALOG_FILE, CATALOG_RAW_FILE, PRICES_FILE, CATALOG_VERSION, invalidateCatalog, installCatalogSource } from "open-sse/providers/catalogOverride.js";
 
 const CATALOG_URL = "https://models.dev/api.json";
 const FETCH_TIMEOUT_MS = 60000;
@@ -209,6 +210,8 @@ export async function syncModelCatalog() {
 
       writeAtomic(CATALOG_FILE, serialized);
       writeAtomic(CATALOG_RAW_FILE, JSON.stringify(slim(catalog)));
+      const prices = buildPrices(catalog);
+      writeAtomic(PRICES_FILE, JSON.stringify({ v: CATALOG_VERSION, syncedAt: Date.now(), ...prices }));
 
       state.etag = etag;
       state.fileVersion = CATALOG_VERSION;
@@ -219,8 +222,9 @@ export async function syncModelCatalog() {
         bytes: Buffer.byteLength(serialized),
         models: Object.keys(models).length,
         providers: Object.keys(providers).length,
+        prices: Object.keys(prices.byModel).length,
       };
-      console.log(`[modelCatalog] ${result.models} models, ${result.providers} providers, ${(result.bytes / 1024).toFixed(1)}KB`);
+      console.log(`[modelCatalog] ${result.models} models, ${result.providers} providers, ${result.prices} prices, ${(result.bytes / 1024).toFixed(1)}KB`);
     }
 
     state.lastSync = Date.now();

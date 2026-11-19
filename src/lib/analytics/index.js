@@ -1,6 +1,7 @@
 import { analyticsEnabled } from "./clickhouse.js";
 import { ensureSchema } from "./schema.js";
 import { shipUsage } from "./usageShipper.js";
+import { shipPrices } from "./priceShipper.js";
 import { recordTrace } from "./traceSink.js";
 
 const SHIP_INTERVAL_MS = 10_000;
@@ -27,6 +28,8 @@ export function startAnalytics() {
       if (!ready) { await ensureSchema(); ready = true; }
       const n = await shipUsage();
       if (n) console.log(`[analytics] shipped ${n} usage rows`);
+      const prices = await shipPrices();
+      if (prices) console.log(`[analytics] shipped ${prices} price rows`);
       lastError = "";
     } catch (e) {
       if (e.message !== lastError) console.error(`[analytics] ${e.message}`);
