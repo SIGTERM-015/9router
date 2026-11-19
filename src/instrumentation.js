@@ -11,6 +11,9 @@ export async function register() {
     const { startModelCatalogSync } = await import("@/lib/modelCatalog/sync.js");
     startModelCatalogSync();
 
+    const { startAnalytics } = await import("@/lib/analytics/index.js");
+    startAnalytics();
+
     const { startModelDiscovery } = await import("@/lib/modelDiscovery");
     startModelDiscovery();
   }

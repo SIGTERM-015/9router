@@ -3,6 +3,7 @@ import { COLORS } from "../../utils/stream.js";
 import { canonicalizeUsage } from "../../utils/usageTracking.js";
 
 const OPTIONAL_PARAMS = [
+  "system", "instructions", "input",
   "temperature", "top_p", "top_k",
   "max_tokens", "max_completion_tokens",
   "thinking", "reasoning", "enable_thinking",
@@ -81,6 +82,7 @@ export function extractUsageFromResponse(responseBody) {
 
 export function buildRequestDetail(base, overrides = {}) {
   return {
+    trace: base.trace,
     provider: base.provider || "unknown",
     model: base.model || "unknown",
     connectionId: base.connectionId || undefined,

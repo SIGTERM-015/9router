@@ -1,5 +1,6 @@
 import { getAdapter } from "../driver.js";
 import { parseJson, stringifyJson } from "../helpers/jsonCol.js";
+import { emitTrace } from "@/lib/analytics/index.js";
 
 const DEFAULT_MAX_RECORDS = 200;
 const DEFAULT_BATCH_SIZE = 20;
@@ -141,6 +142,7 @@ async function flushToDatabase() {
 }
 
 export async function saveRequestDetail(detail) {
+  emitTrace(detail);
   const config = await getObservabilityConfig();
   if (!config.enabled) {return;}
 
