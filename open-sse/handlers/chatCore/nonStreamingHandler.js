@@ -1,6 +1,7 @@
 import { FORMATS } from "../../translator/formats.js";
 import { needsTranslation } from "../../translator/index.js";
 import { openAICompletionToClaudeMessage } from "../../translator/concerns/claudeMessage.js";
+import { openAICompletionToGemini } from "../../translator/concerns/geminiMessage.js";
 import { ollamaBodyToOpenAI } from "../../translator/response/ollama-to-openai.js";
 import { addBufferToUsage, filterUsageForFormat } from "../../utils/usageTracking.js";
 import { createErrorResult } from "../../utils/error.js";
@@ -93,10 +94,13 @@ function openAICompletionToResponses(responseBody, customToolNames = null) {
 }
 
 /**
- * Translate non-streaming response body from provider format → OpenAI format.
+ * Translate non-streaming response body from provider format → client format.
  */
 export function translateNonStreamingResponse(responseBody, targetFormat, sourceFormat, customToolNames = null) {
   if (targetFormat === sourceFormat) return responseBody;
+  if (sourceFormat === FORMATS.GEMINI) {
+    return openAICompletionToGemini(translateNonStreamingResponse(responseBody, targetFormat, FORMATS.OPENAI, customToolNames));
+  }
   // Provider responded in OpenAI Chat Completions shape but the client speaks
   // Responses API — convert so tool_calls/text surface as Responses `output`.
   if (targetFormat === FORMATS.OPENAI && sourceFormat === FORMATS.OPENAI_RESPONSES) {
@@ -294,7 +298,9 @@ export async function handleNonStreamingResponse({ providerResponse, provider, m
   const isClaudeMessageResponse = sourceFormat === FORMATS.CLAUDE && translatedResponse?.type === "message";
   // Responses-format translation produces a `object:"response"` body with no
   // `choices`; skip the Chat-Completions-specific post-processing below for it.
-  const isResponsesResponse = sourceFormat === FORMATS.OPENAI_RESPONSES && translatedResponse?.object === "response";
+  // Gemini clients get a GenerateContentResponse: no Chat Completions post-processing either.
+  const isResponsesResponse = (sourceFormat === FORMATS.OPENAI_RESPONSES && translatedResponse?.object === "response")
+    || (sourceFormat === FORMATS.GEMINI && !!translatedResponse?.candidates);
 
   // Fix finish_reason for tool_calls: some providers return non-standard values (e.g. "other")
   if (translatedResponse?.choices?.[0]) {

@@ -81,13 +81,23 @@ describe("Claude JSON clients behind forced-stream upstreams", () => {
     expect((await result.response.json()).content).toEqual([{ type: "text", text: "" }]);
   });
 
-  it.each([FORMATS.OPENAI, FORMATS.OPENAI_RESPONSES, FORMATS.GEMINI])("keeps the existing %s client shape", async (sourceFormat) => {
+  it.each([FORMATS.OPENAI, FORMATS.OPENAI_RESPONSES, FORMATS.ANTIGRAVITY])("keeps the existing %s client shape", async (sourceFormat) => {
     const raw = responsesSSE([{ type: "message", role: "assistant", content: [{ type: "output_text", text: "hello" }] }]);
     const result = await handleForcedSSEToJson(context(raw, sourceFormat, FORMATS.OPENAI_RESPONSES));
     const json = await result.response.json();
     if (sourceFormat === FORMATS.OPENAI) expect(json.choices[0].message.content).toBe("hello");
     else if (sourceFormat === FORMATS.OPENAI_RESPONSES) expect(json.output[0].content[0].text).toBe("hello");
     else expect(json.response.candidates[0].content.parts[0].text).toBe("hello");
+  });
+
+  it("returns a plain GenerateContentResponse with function calls to Gemini clients", async () => {
+    const raw = responsesSSE([toolItem]);
+    const result = await handleForcedSSEToJson(context(raw, FORMATS.GEMINI, FORMATS.OPENAI_RESPONSES));
+    const json = await result.response.json();
+    expect(json).not.toHaveProperty("response");
+    expect(json.candidates[0].content).toEqual({ role: "model", parts: [{ functionCall: { name: "lookup", args: { code: "A" } } }] });
+    expect(json.candidates[0].finishReason).toBe("STOP");
+    expect(json.usageMetadata).toEqual({ promptTokenCount: 12, candidatesTokenCount: 7, totalTokenCount: 19 });
   });
 
   it("reuses the same conversion for ordinary non-streaming Chat responses", () => {

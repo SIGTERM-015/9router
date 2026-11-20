@@ -7,6 +7,8 @@ import { getAntigravityQuotaCache, getAntigravityModelQuota } from "./antigravit
 import { QUOTA_AWARE, pickQuotaAware, refreshAccountUsage } from "./quotaRouting.js";
 import * as log from "../utils/logger.js";
 
+export { extractApiKey } from "./clientKey.js";
+
 // Mutex to prevent race conditions during account selection
 let selectionMutex = Promise.resolve();
 
@@ -354,24 +356,6 @@ export async function clearAccountError(connectionId, currentConnection, model =
   await updateProviderConnection(connectionId, clearObj);
 }
 
-/**
- * Extract API key from request headers
- */
-export function extractApiKey(request) {
-  // Check Authorization header first
-  const authHeader = request.headers.get("Authorization");
-  if (authHeader?.startsWith("Bearer ")) {
-    return authHeader.slice(7);
-  }
-
-  // Check Anthropic x-api-key header
-  const xApiKey = request.headers.get("x-api-key");
-  if (xApiKey) {
-    return xApiKey;
-  }
-
-  return null;
-}
 
 /**
  * Validate API key (optional - for local use can skip)
