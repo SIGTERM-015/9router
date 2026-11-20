@@ -143,7 +143,11 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
   const preTranslateRtkLine = formatRtkLog(preTranslateRtk);
   if (preTranslateRtkLine) console.log(preTranslateRtkLine);
 
-  const clientRequestedStreaming = body.stream === true || sourceFormat === FORMATS.ANTIGRAVITY || sourceFormat === FORMATS.GEMINI || sourceFormat === FORMATS.GEMINI_CLI;
+  // Gemini-family clients stream unless they ask for JSON (/v1beta :generateContent sets Accept).
+  const acceptHeader = clientRawRequest?.headers?.accept || "";
+  const clientWantsJson = acceptHeader.includes("application/json") && !acceptHeader.includes("text/event-stream");
+  const clientRequestedStreaming = body.stream === true
+    || ((sourceFormat === FORMATS.ANTIGRAVITY || sourceFormat === FORMATS.GEMINI || sourceFormat === FORMATS.GEMINI_CLI) && !clientWantsJson);
   const providerRequiresStreaming = PROVIDERS[provider]?.forceStream === true;
 
   const detectedTool = detectClientTool(clientRawRequest?.headers || {}, body);
@@ -152,7 +156,7 @@ export async function handleChatCore({ body, modelInfo, credentials, log, onCred
     sourceFormat,
     providerRequiresStreaming,
     detectedTool,
-    acceptHeader: clientRawRequest?.headers?.accept || ""
+    acceptHeader
   });
 
   // Image generation models require non-streaming (Google v1internal:generateContent)

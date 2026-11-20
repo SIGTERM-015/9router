@@ -4,6 +4,7 @@ import { createErrorResult } from "../../utils/error.js";
 import { HTTP_STATUS } from "../../config/runtimeConfig.js";
 import { FORMATS } from "../../translator/formats.js";
 import { openAICompletionToClaudeMessage } from "../../translator/concerns/claudeMessage.js";
+import { openAICompletionToGemini } from "../../translator/concerns/geminiMessage.js";
 import { PROVIDERS } from "../../config/providers.js";
 import { traceContext } from "./traceContext.js";
 import { buildRequestDetail, extractRequestConfig, saveUsageStats, formatDoneLine } from "./requestDetail.js";
@@ -266,7 +267,7 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
       }));
       const hasToolCalls = toolCalls.length > 0;
 
-      if (sourceFormat === FORMATS.ANTIGRAVITY || sourceFormat === FORMATS.GEMINI || sourceFormat === FORMATS.GEMINI_CLI) {
+      if (sourceFormat === FORMATS.ANTIGRAVITY || sourceFormat === FORMATS.GEMINI_CLI) {
         finalResp = {
           response: {
             candidates: [{ content: { role: "model", parts: [{ text: textContent || "" }] }, finishReason: "STOP", index: 0 }],
@@ -292,6 +293,8 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
 
       if (sourceFormat === FORMATS.CLAUDE) {
         finalResp = openAICompletionToClaudeMessage(finalResp);
+      } else if (sourceFormat === FORMATS.GEMINI) {
+        finalResp = openAICompletionToGemini(finalResp);
       }
 
       return { success: true, response: new Response(JSON.stringify(restoreToolNames(finalResp, toolNameMap)), { headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" } }) };

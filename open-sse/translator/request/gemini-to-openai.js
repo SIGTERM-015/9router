@@ -61,7 +61,8 @@ export function geminiToOpenAIRequest(model, body, stream) {
             function: {
               name: func.name,
               description: func.description || "",
-              parameters: func.parameters || { type: "object", properties: {} }
+              // google-genai SDKs send JSON Schema as parametersJsonSchema (OpenAPI subset is `parameters`)
+              parameters: func.parameters || func.parametersJsonSchema || { type: "object", properties: {} }
             }
           });
         }
@@ -85,6 +86,9 @@ function convertGeminiContent(content) {
   const toolResults = [];
 
   for (const part of content.parts) {
+    // Replayed model thoughts are the model's private reasoning, not conversation text.
+    if (part.thought === true) continue;
+
     if (part.text !== undefined) {
       parts.push({ type: OPENAI_BLOCK.TEXT, text: part.text });
     }

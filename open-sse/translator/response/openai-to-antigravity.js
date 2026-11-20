@@ -126,3 +126,12 @@ export function openaiToAntigravityResponse(chunk, state) {
 
 // Register
 register(FORMATS.OPENAI, FORMATS.ANTIGRAVITY, null, openaiToAntigravityResponse);
+
+// Plain Gemini clients (google-genai SDKs on /v1beta) get the same chunk without
+// Antigravity's { response } envelope.
+export function openaiToGeminiResponse(chunk, state) {
+  const out = openaiToAntigravityResponse(chunk, state);
+  return out?.response ?? out;
+}
+
+register(FORMATS.OPENAI, FORMATS.GEMINI, null, openaiToGeminiResponse);
