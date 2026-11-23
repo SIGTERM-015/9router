@@ -128,3 +128,14 @@ describe("OpenAI upstream → Gemini client (JSON)", () => {
     expect(translateNonStreamingResponse(body, FORMATS.GEMINI, FORMATS.GEMINI)).toBe(body);
   });
 });
+
+describe("OpenAI upstream → Gemini client, stream ends without a finish frame", () => {
+  it("still delivers the accumulated tool call once", () => {
+    const state = initState(FORMATS.GEMINI);
+    const call = { id: "chatcmpl-3", model: "m", choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: "c4", function: { name: "run_command", arguments: '{"CommandLine":"ls"}' } }] } }] };
+    expect(translateResponse(FORMATS.OPENAI, FORMATS.GEMINI, call, state)).toEqual([]);
+    const flushed = translateResponse(FORMATS.OPENAI, FORMATS.GEMINI, null, state);
+    expect(flushed.map((o) => o.candidates[0].content.parts)).toEqual([[{ functionCall: { name: "run_command", args: { CommandLine: "ls" } } }]]);
+    expect(translateResponse(FORMATS.OPENAI, FORMATS.GEMINI, null, state) || []).toEqual([]);
+  });
+});

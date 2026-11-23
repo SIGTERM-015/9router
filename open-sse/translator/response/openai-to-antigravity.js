@@ -8,7 +8,12 @@ import { extractReasoningText } from "../concerns/reasoning.js";
 //   data: {"response":{"candidates":[{"content":{"role":"model","parts":[...]}, "finishReason":"STOP"}], "usageMetadata":{...}, "modelVersion":"...", "responseId":"..."}}
 // Tool calls: OpenAI sends incremental args across chunks → accumulate and emit ONCE at finish
 export function openaiToAntigravityResponse(chunk, state) {
-  if (!chunk) return null;
+  // End of stream: a stream that stopped without a finish frame still owes the client
+  // the tool calls accumulated above, so close it as a tool-call finish.
+  if (!chunk) {
+    if (!state._toolCallAccum || Object.keys(state._toolCallAccum).length === 0) return null;
+    chunk = { choices: [{ index: 0, delta: {}, finish_reason: OPENAI_FINISH.TOOL_CALLS }] };
+  }
 
   const choice = chunk.choices?.[0];
   if (!choice) {
@@ -74,6 +79,7 @@ export function openaiToAntigravityResponse(chunk, state) {
         }
       });
     }
+    state._toolCallAccum = {};
   }
 
   // Skip empty non-finish chunks
