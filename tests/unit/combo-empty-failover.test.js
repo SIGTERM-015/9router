@@ -276,6 +276,30 @@ describe("inspectSSELine — OpenAI Responses client format", () => {
 
 // Combos through the real combo.js, each member's Response built by the real streaming
 // pipeline (upstream bytes → client-format transform), per client format.
+describe("inspectSSELine — Gemini client format", () => {
+  const g = (o) => `data: ${JSON.stringify(o)}`;
+  const parts = (...p) => ({ candidates: [{ content: { role: "model", parts: p } }] });
+  it("a text part IS content; an empty text part is NOT", () => {
+    expect(inspectSSELine(g(parts({ text: "hi" }))).content).toBe(true);
+    expect(inspectSSELine(g(parts({ text: "" }))).content).toBe(false);
+  });
+  it("a thought part is NOT content (as reasoning_content is not)", () => {
+    expect(inspectSSELine(g(parts({ text: "hmm", thought: true, thoughtSignature: "s" }))).content).toBe(false);
+  });
+  it("a functionCall part IS content", () => {
+    expect(inspectSSELine(g(parts({ functionCall: { name: "f", args: {} } }))).content).toBe(true);
+  });
+  it("reads chunks inside the Cloud Code `response` envelope", () => {
+    expect(inspectSSELine(g({ response: parts({ text: "hi" }) })).content).toBe(true);
+  });
+  it("finishReason maps to the hub vocabulary; SAFETY → content_filter (no-retry)", () => {
+    expect(inspectSSELine(g({ candidates: [{ finishReason: "STOP" }] })).finishReason).toBe("stop");
+    const safety = inspectSSELine(g({ candidates: [{ finishReason: "SAFETY" }] })).finishReason;
+    expect(safety).toBe("content_filter");
+    expect(isNoRetryFinish(safety)).toBe(true);
+  });
+});
+
 describe("combo fall-through per client format (real combo.js + streaming pipeline)", async () => {
   const { createStreamController } = await import("../../open-sse/utils/streamHandler.js");
   const { handleStreamingResponse, buildOnStreamComplete } = await import("../../open-sse/handlers/chatCore/streamingHandler.js");
@@ -317,6 +341,7 @@ describe("combo fall-through per client format (real combo.js + streaming pipeli
     "OpenAI chat": { sourceFormat: FORMATS.OPENAI },
     "Anthropic Messages": { sourceFormat: FORMATS.CLAUDE },
     "OpenAI Responses": { sourceFormat: FORMATS.OPENAI_RESPONSES },
+    "Gemini (/v1beta)": { sourceFormat: FORMATS.GEMINI },
   };
   for (const [name, fmt] of Object.entries(clients)) {
     describe(`${name} client`, () => {
@@ -356,6 +381,22 @@ describe("combo fall-through per client format (real combo.js + streaming pipeli
       const { tried } = await combo([[ROLE, FILTER_STOP, DONE], [ROLE, C("from-m1"), STOP, DONE]], { sourceFormat });
       expect(tried).toEqual(["openai/m0"]);
     }
+  });
+
+  // Gemini provider + Gemini client (/v1beta → gemini/*): same-format passthrough.
+  describe("Gemini client, Gemini provider (passthrough)", () => {
+    const GEM = { sourceFormat: FORMATS.GEMINI, targetFormat: FORMATS.GEMINI };
+    const gch = (p, finishReason) => `data: ${JSON.stringify({ candidates: [{ content: { role: "model", parts: p }, ...(finishReason ? { finishReason } : {}) }] })}\r\n\r\n`;
+    it("good first → only the first member is called", async () => {
+      const { out, tried } = await combo([[gch([{ text: "from-m0" }], "STOP")], [gch([{ text: "from-m1" }], "STOP")]], GEM);
+      expect(tried).toEqual(["openai/m0"]);
+      expect(out).toContain("from-m0");
+    });
+    it("thought-only first member falls through", async () => {
+      const { out, tried } = await combo([[gch([{ text: "hmm", thought: true }]), gch([], "STOP")], [gch([{ text: "from-m1" }], "STOP")]], GEM);
+      expect(tried).toEqual(["openai/m0", "openai/m1"]);
+      expect(out).toContain("from-m1");
+    });
   });
 
   // Responses provider + Responses client: same-format passthrough of Responses events.

@@ -45,7 +45,8 @@ export function deltaHasClientContent(delta) {
 }
 
 // The peek reads the CLIENT-format stream, which is OpenAI chat (/v1/chat/completions),
-// Anthropic Messages (/v1/messages) or OpenAI Responses (/v1/responses). A format the peek
+// Anthropic Messages (/v1/messages), OpenAI Responses (/v1/responses) or Gemini
+// GenerateContentResponse chunks (/v1beta, bare or inside the Cloud Code `response` envelope). A format the peek
 // cannot read never shows content: every combo member would be judged "empty" and called in
 // turn, and the LAST one returned. Every format gets the same rule: answer text and tool calls
 // are content; reasoning / thinking is not (as reasoning_content is not). Finish reasons are
@@ -106,6 +107,18 @@ function inspectResponsesEvent(obj) {
   return { content, finishReason };
 }
 
+// Gemini chunk. Text parts and function calls are content; thought parts are reasoning.
+function inspectGeminiChunk(obj) {
+  let content = false, finishReason = null;
+  for (const candidate of obj.candidates) {
+    for (const part of candidate?.content?.parts || []) {
+      if (part.functionCall || (part.thought !== true && nonEmptyString(part.text))) content = true;
+    }
+    if (candidate?.finishReason) finishReason = toOpenAIFinish(candidate.finishReason, FORMATS.GEMINI);
+  }
+  return { content, finishReason };
+}
+
 // Inspect one complete client-format SSE line (parsed with the shared parseSSELine) and report
 // whether it carries content and/or a finish reason. Non-data lines and "[DONE]" carry nothing.
 export function inspectSSELine(line) {
@@ -114,6 +127,8 @@ export function inspectSSELine(line) {
   if (typeof parsed.type === "string" && !Array.isArray(parsed.choices)) {
     return parsed.type.startsWith(RESPONSES_EVENT_PREFIX) ? inspectResponsesEvent(parsed) : inspectClaudeEvent(parsed);
   }
+  const gemini = Array.isArray(parsed.candidates) ? parsed : parsed.response;
+  if (Array.isArray(gemini?.candidates)) return inspectGeminiChunk(gemini);
   let content = false, finishReason = null;
   for (const choice of parsed.choices || []) {
     if (deltaHasClientContent(choice.delta || choice.message || {})) content = true;
