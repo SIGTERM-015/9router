@@ -123,8 +123,7 @@ describe("combo /v1/chat/completions reasoning_effort propagation", () => {
     });
 
     expect(res.status).toBe(200);
-    // 1st seat (age) retries 503 per registry retry config (3 attempts + initial = 4) OR
-    // check first and last calls across seats:
+    // Both seats were called: the first (age) answers 400, so the request falls back to gemini.
     const ageCall = proxyAwareFetch.mock.calls.find(([url]) => String(url).includes("businessaicode"));
     const geminiCall = proxyAwareFetch.mock.calls.find(([url]) => String(url).includes("generativelanguage.googleapis.com"));
     expect(ageCall).toBeDefined();

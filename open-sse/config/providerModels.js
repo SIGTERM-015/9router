@@ -101,8 +101,10 @@ export function getModelUpstreamId(aliasOrId, modelId, clientBody = null) {
   const models = PROVIDER_MODELS[aliasOrId];
 
   // Resolve requested thinking level from suffix or client request body.
-  // Keep "xhigh" intact when the provider actually has a matching "-xhigh"
-  // tier (e.g. gemini-4-neon-xhigh); otherwise fall back to "-high".
+  // Keep "xhigh" intact only for a family that really has "-high" and "-xhigh" tiers
+  // (e.g. gemini-4-neon-xhigh); otherwise fall back to "-high". Only "xhigh" is eligible:
+  // ids ending in "-max" (claude-4.6-opus-max, qwen3-max, gpt-5.1-codex-max) are different
+  // products, not thinking tiers, so "max" must keep collapsing to "high".
   const rawSuffix = suffix ? suffix.slice(1, -1).trim().toLowerCase() : "";
   let rawTier = rawSuffix;
   if (!rawTier && clientBody && typeof clientBody === "object") {
@@ -116,7 +118,9 @@ export function getModelUpstreamId(aliasOrId, modelId, clientBody = null) {
       }
     }
   }
-  const exactTiered = rawTier ? findModel(models, `${baseId}-${rawTier}`, aliasOrId) : null;
+  const exactTiered = rawTier === "xhigh" && findModel(models, `${baseId}-high`, aliasOrId)
+    ? findModel(models, `${baseId}-xhigh`, aliasOrId)
+    : null;
   const tier = exactTiered
     ? rawTier
     : (rawTier === "xhigh" || rawTier === "max" ? "high" : rawTier === "minimal" ? "low" : rawTier);
