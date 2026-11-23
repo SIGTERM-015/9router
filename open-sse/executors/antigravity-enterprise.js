@@ -60,7 +60,11 @@ export class AntigravityEnterpriseExecutor extends AntigravityExecutor {
   transformRequest(model, body, stream, credentials) {
     const license = requireLicense(credentials);
     const { isImage, cleanModel, request } = this.prepareRequestBody(model, body, stream, credentials);
-    return enterpriseBody(isImage ? cleanModel : enterpriseModelName(model), request, license);
+    // Prefer the translated body's model when present so client reasoning_effort
+    // tier resolution (e.g. "gemini-4-neon" + reasoning_effort:"low" -> "gemini-4-neon-low")
+    // reaches Business AI Code instead of falling back to the un-tiered default.
+    const targetModel = body?.model || model;
+    return enterpriseBody(isImage ? cleanModel : enterpriseModelName(targetModel), request, license);
   }
 }
 

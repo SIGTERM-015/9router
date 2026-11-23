@@ -100,25 +100,34 @@ export function getModelUpstreamId(aliasOrId, modelId, clientBody = null) {
   const baseId = suffix ? modelId.slice(0, sufMatch.index).trim() : modelId;
   const models = PROVIDER_MODELS[aliasOrId];
 
-  // Resolve requested thinking level from suffix or client request body
+  // Resolve requested thinking level from suffix or client request body.
+  // Keep "xhigh" intact only for a family that really has "-high" and "-xhigh" tiers
+  // (e.g. gemini-4-neon-xhigh); otherwise fall back to "-high". Only "xhigh" is eligible:
+  // ids ending in "-max" (claude-4.6-opus-max, qwen3-max, gpt-5.1-codex-max) are different
+  // products, not thinking tiers, so "max" must keep collapsing to "high".
   const rawSuffix = suffix ? suffix.slice(1, -1).trim().toLowerCase() : "";
-  let tier = rawSuffix === "xhigh" || rawSuffix === "max" ? "high" : rawSuffix === "minimal" ? "low" : rawSuffix;
-  if (!tier && clientBody && typeof clientBody === "object") {
+  let rawTier = rawSuffix;
+  if (!rawTier && clientBody && typeof clientBody === "object") {
     const rawEffort = clientBody.reasoning_effort || clientBody.output_config?.effort || (typeof clientBody.reasoning === "object" ? clientBody.reasoning?.effort : null);
     if (typeof rawEffort === "string" && rawEffort) {
-      const v = rawEffort.toLowerCase().trim();
-      tier = v === "xhigh" || v === "max" ? "high" : v === "minimal" ? "low" : v;
+      rawTier = rawEffort.toLowerCase().trim();
     } else if (clientBody.thinking && typeof clientBody.thinking === "object") {
       const b = Number(clientBody.thinking.budget_tokens);
       if (Number.isFinite(b) && b > 0) {
-        tier = b > 16384 ? "high" : b <= 4096 ? "low" : "medium";
+        rawTier = b > 16384 ? "high" : b <= 4096 ? "low" : "medium";
       }
     }
   }
+  const exactTiered = rawTier === "xhigh" && findModel(models, `${baseId}-high`, aliasOrId)
+    ? findModel(models, `${baseId}-xhigh`, aliasOrId)
+    : null;
+  const tier = exactTiered
+    ? rawTier
+    : (rawTier === "xhigh" || rawTier === "max" ? "high" : rawTier === "minimal" ? "low" : rawTier);
 
   // Look for tiered variant first if a tier was requested (e.g. gemini-3.8-flash-high)
   const tieredId = tier ? `${baseId}-${tier}` : null;
-  const found = (tieredId && findModel(models, tieredId, aliasOrId)) || findModel(models, baseId, aliasOrId);
+  const found = exactTiered || (tieredId && findModel(models, tieredId, aliasOrId)) || findModel(models, baseId, aliasOrId);
   const resolvedId = found?.upstreamModelId || found?.id;
   if (resolvedId) {
     const presetMatch = resolvedId.match(/\([^()]+\)\s*$/);
