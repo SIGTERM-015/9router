@@ -108,6 +108,10 @@ const PATTERN_THINKING = [
 const OPENAI_MAX_EFFORT_MODEL = /(?:^|\/)gpt-(?:5\.6|6)(?:[.-]|$)/i;
 const isOpenAICompatibleNode = (provider) => String(provider || "").startsWith("openai-compatible-");
 
+// Canonical ordering for intersecting thinking levels across combo seats.
+const CANONICAL_LEVEL_ORDER = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra", "thinking"];
+const MAX_COMBO_DEPTH = 6;
+
 // Returns valid thinking levels for a model, or null when the model has no reasoning.
 export function getThinkingLevels(provider, model) {
   if (provider === "kiro" && resolveKiroEffortPath(model) === null) return null;
@@ -125,4 +129,65 @@ export function getThinkingLevels(provider, model) {
     || FORMAT_LEVELS[caps.thinkingFormat] || L.base;
   if (caps.thinkingCanDisable === false) levels = levels.filter((l) => l !== "none");
   return levels;
+}
+
+/**
+ * Aggregate valid thinking levels for a combo from its seats.
+ *
+ * A combo with fallback may route any request to any seat, so only levels
+ * accepted by EVERY seat are advertised (intersection, kept in canonical
+ * order). Returns null if the combo is empty, any seat lacks reasoning, the
+ * intersection is empty, or a cycle/depth limit is hit with no valid seats.
+ *
+ * @param {string[]} comboModels - Seat strings ("alias/model" or nested combo names)
+ * @param {Object|null} [comboLookup] - Optional map of combo name -> models array
+ * @param {Function|null} [resolveLevels] - Optional (seat) => string[]|null resolver (e.g. UI alias -> providerId)
+ * @param {Set<string>} [_visiting] - Internal cycle guard
+ * @param {number} [_depth] - Internal recursion depth guard
+ * @returns {string[]|null}
+ */
+export function aggregateComboThinkingLevels(
+  comboModels,
+  comboLookup = null,
+  resolveLevels = null,
+  _visiting = new Set(),
+  _depth = 0,
+) {
+  if (!Array.isArray(comboModels) || comboModels.length === 0 || _depth > MAX_COMBO_DEPTH) return null;
+
+  let common = null;
+  for (const seat of comboModels) {
+    if (typeof seat !== "string" || !seat) continue;
+    let seatLevels = null;
+    const slash = seat.indexOf("/");
+    if (slash <= 0 && comboLookup?.[seat]) {
+      if (_visiting.has(seat)) return null;
+      _visiting.add(seat);
+      try {
+        seatLevels = aggregateComboThinkingLevels(comboLookup[seat], comboLookup, resolveLevels, _visiting, _depth + 1);
+      } finally {
+        _visiting.delete(seat);
+      }
+    } else if (resolveLevels) {
+      seatLevels = resolveLevels(seat);
+    } else {
+      const provider = slash <= 0 ? null : seat.slice(0, slash);
+      const model = slash <= 0 ? seat : seat.slice(slash + 1);
+      seatLevels = getThinkingLevels(provider, model);
+    }
+
+    if (!Array.isArray(seatLevels) || seatLevels.length === 0) return null;
+    const seatSet = new Set(seatLevels);
+    common = common === null
+      ? seatSet
+      : new Set([...common].filter((level) => seatSet.has(level)));
+    if (common.size === 0) return null;
+  }
+
+  if (!common || common.size === 0) return null;
+  const orderIndex = (level) => {
+    const idx = CANONICAL_LEVEL_ORDER.indexOf(level);
+    return idx === -1 ? CANONICAL_LEVEL_ORDER.length : idx;
+  };
+  return [...common].sort((a, b) => orderIndex(a) - orderIndex(b));
 }

@@ -22,7 +22,7 @@ import { resolveCommandCodeModels } from "open-sse/services/commandcodeModels.js
 import { updateProviderCredentials } from "@/sse/services/tokenRefresh";
 import { resolveConnectionProxyConfig } from "@/lib/network/connectionProxy";
 import { capabilitiesFromServiceKind, getCapabilitiesForModel, aggregateComboCapabilities } from "open-sse/providers/capabilities.js";
-import { getThinkingLevels } from "open-sse/providers/thinkingLevels.js";
+import { getThinkingLevels, aggregateComboThinkingLevels } from "open-sse/providers/thinkingLevels.js";
 
 // Qoder shares one live resolver across intl (qoder) and CN (qoder-cn); the
 // credentials carry the provider id so qoderModels picks the right region's
@@ -54,11 +54,26 @@ const ALIAS_TO_PROVIDER_ID = {
   ...ALIAS_TO_ID,
 };
 
-function comboSeatCapabilities(seat) {
+function parseComboSeat(seat) {
   const slash = seat.indexOf("/");
   if (slash <= 0) return null;
   const alias = seat.slice(0, slash);
-  return getCapabilitiesForModel(ALIAS_TO_PROVIDER_ID[alias] || alias, seat.slice(slash + 1));
+  return {
+    providerId: ALIAS_TO_PROVIDER_ID[alias] || alias,
+    modelId: seat.slice(slash + 1),
+  };
+}
+
+function comboSeatCapabilities(seat) {
+  const parsed = parseComboSeat(seat);
+  if (!parsed) return null;
+  return getCapabilitiesForModel(parsed.providerId, parsed.modelId);
+}
+
+function comboSeatThinkingLevels(seat) {
+  const parsed = parseComboSeat(seat);
+  if (!parsed) return getThinkingLevels(null, seat);
+  return getThinkingLevels(parsed.providerId, parsed.modelId);
 }
 
 // Per-provider live model resolvers. Each receives a connection record and
@@ -415,6 +430,17 @@ export async function buildModelsList(kindFilter, options = {}) {
       const { contextWindow, maxOutput } = comboSeatLimits(combo, combosByName);
       if (Number.isFinite(contextWindow)) entry.context_length = contextWindow;
       if (Number.isFinite(maxOutput)) entry.max_completion_tokens = maxOutput;
+      // Fallback can route a request to any seat, so only advertise thinking levels
+      // supported by every seat (intersection in canonical order); omit if empty.
+      const thinkingLevels = aggregateComboThinkingLevels(
+        combo.models,
+        comboByName,
+        comboSeatThinkingLevels,
+        new Set(typeof combo.name === "string" ? [combo.name] : []),
+      );
+      if (Array.isArray(thinkingLevels) && thinkingLevels.length > 0) {
+        entry.thinking_levels = thinkingLevels;
+      }
     }
     models.push(entry);
   }
