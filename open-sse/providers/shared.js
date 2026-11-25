@@ -1,4 +1,5 @@
 import { setClaudeCliFallback } from "../utils/claudeCliVersion.js";
+import { GOOGLE_FETCH_CONNECT_TIMEOUT_MS } from "../config/runtimeConfig.js";
 import { platform, arch } from "os";
 
 // === OS/Arch helpers (Stainless fingerprint) ===
@@ -117,6 +118,15 @@ export const ANTIGRAVITY_OAUTH_CLIENT = {
 export const ANTIGRAVITY_ENTERPRISE_OAUTH_CLIENT = {
   clientId: process.env.ANTIGRAVITY_ENTERPRISE_CLIENT_ID,
   clientSecret: process.env.ANTIGRAVITY_ENTERPRISE_CLIENT_SECRET,
+};
+
+// Transport for Google model backends (Gemini API, Antigravity): they send response headers only
+// once the prompt is prefilled, past a minute on large agent contexts. Wait longer for them, and
+// never replay a request that timed out: the replay starts the same prefill over, and the client
+// (or the combo's next model) is better served by the error now.
+export const GOOGLE_SLOW_HEADERS = {
+  timeoutMs: GOOGLE_FETCH_CONNECT_TIMEOUT_MS,
+  retry: { connectTimeout: { attempts: 0 } },
 };
 
 // Gemini (Google) OAuth client credentials (public CLI client — shared by gemini, gemini-cli, src/lib/oauth)

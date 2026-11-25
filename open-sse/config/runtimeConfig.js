@@ -63,6 +63,15 @@ export const EMPTY_PEEK_DEADLINE_MS = envMs("EMPTY_PEEK_DEADLINE_MS", 45 * 1000)
 // Fetch connect timeout: abort if upstream doesn't return response headers within this duration
 export const FETCH_CONNECT_TIMEOUT_MS = envMs("FETCH_CONNECT_TIMEOUT_MS", 60 * 1000);
 
+// Google model backends (Gemini API, Antigravity) withhold response headers until the prompt is
+// prefilled, which takes over a minute on large agent contexts. Env: GOOGLE_FETCH_CONNECT_TIMEOUT_MS.
+export const GOOGLE_FETCH_CONNECT_TIMEOUT_MS = envMs("GOOGLE_FETCH_CONNECT_TIMEOUT_MS", 180 * 1000);
+
+// /v1beta streams: when the response is not ready after GEMINI_STREAM_HOLD_AFTER_MS, the client
+// gets its headers and an empty Gemini chunk every GEMINI_STREAM_KEEPALIVE_MS until it is.
+export const GEMINI_STREAM_HOLD_AFTER_MS = envMs("GEMINI_STREAM_HOLD_AFTER_MS", 10 * 1000);
+export const GEMINI_STREAM_KEEPALIVE_MS = envMs("GEMINI_STREAM_KEEPALIVE_MS", 15 * 1000);
+
 // Keep-alive socket TTL. Cap it below upstream/edge idle windows (Cloudflare, AWS Global
 // Accelerator / NVIDIA NIM) that drop idle sockets without a TCP RST. keepAliveMaxTimeout is
 // clamped to the same value so an upstream `Keep-Alive` header cannot extend it to 600s.
