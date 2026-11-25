@@ -228,6 +228,42 @@ describe("undici keep-alive dead-socket protection & fresh-socket retry", () => 
     expect(fetchMock.mock.calls[1][2]).toEqual({ forceFreshSocket: true });
   });
 
+  it("BaseExecutor.execute does not replay a connect timeout when the provider says connectTimeout attempts 0", async () => {
+    const fetchMock = vi.fn((_url, opts) => new Promise((_resolve, reject) => {
+      opts.signal.addEventListener("abort", () => {
+        const err = new Error("fetch connect timeout");
+        err.name = "AbortError";
+        reject(err);
+      });
+    }));
+    vi.doMock("../../open-sse/utils/proxyFetch.js", () => ({ proxyAwareFetch: (...args) => fetchMock(...args) }));
+
+    const { BaseExecutor } = await import("../../open-sse/executors/base.js");
+    const ex = new BaseExecutor("gemini", {
+      baseUrl: "https://generativelanguage.googleapis.com/v1beta/models",
+      timeoutMs: 15,
+      retry: { 502: { attempts: 3, delayMs: 0 }, connectTimeout: { attempts: 0 } },
+    });
+
+    await expect(ex.execute({
+      model: "gemini-4-neon",
+      body: { contents: [] },
+      stream: true,
+      credentials: { apiKey: "k" },
+    })).rejects.toThrow("fetch connect timeout");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("gives the Google model backends a long header wait and no connect-timeout replay", async () => {
+    const { PROVIDERS } = await import("../../open-sse/config/providers.js");
+    for (const id of ["gemini", "antigravity", "antigravity-enterprise"]) {
+      expect(PROVIDERS[id].timeoutMs).toBe(180000);
+      expect(PROVIDERS[id].retry.connectTimeout).toEqual({ attempts: 0 });
+    }
+    expect(PROVIDERS.antigravity.retry["429"]).toEqual({ attempts: 3 });
+    expect(PROVIDERS.openai.retry).toBeUndefined();
+  });
+
   it("DefaultExecutor.transformRequest strips stream_options on non-streaming calls without mutating input body", async () => {
     const { DefaultExecutor } = await import("../../open-sse/executors/default.js");
     const ex = new DefaultExecutor("nvidia");

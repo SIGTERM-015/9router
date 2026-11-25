@@ -1,4 +1,4 @@
-import { ANTIGRAVITY_IDE_BASE_URL, ANTIGRAVITY_IDE_USER_AGENT, ANTIGRAVITY_OAUTH_CLIENT } from "../shared.js";
+import { ANTIGRAVITY_IDE_BASE_URL, ANTIGRAVITY_IDE_USER_AGENT, ANTIGRAVITY_OAUTH_CLIENT, GOOGLE_SLOW_HEADERS } from "../shared.js";
 
 export default {
   id: "antigravity",
@@ -34,7 +34,9 @@ export default {
       "503": {
         attempts: 3,
       },
+      ...GOOGLE_SLOW_HEADERS.retry,
     },
+    timeoutMs: GOOGLE_SLOW_HEADERS.timeoutMs,
     usage: {
       quotaApiUrl: `${ANTIGRAVITY_IDE_BASE_URL}/v1internal:fetchAvailableModels`,
       quotaSummaryApiUrl: `${ANTIGRAVITY_IDE_BASE_URL}/v1internal:retrieveUserQuotaSummary`,

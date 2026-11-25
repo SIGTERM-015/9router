@@ -185,7 +185,10 @@ export class BaseExecutor {
 
         // Map network/fetch exceptions to 502 retry config; force a fresh socket on retry
         // so a silently-dropped keep-alive socket is never reused from the pool.
-        if (await tryRetry(urlIndex, HTTP_STATUS.BAD_GATEWAY, `network "${error.message}"`)) {
+        // A connect timeout takes the provider's `connectTimeout` entry when it has one:
+        // where the upstream is known to hold slow requests, a replay restarts the work.
+        const retryKey = connectCtrl.signal.aborted && retryConfig.connectTimeout ? "connectTimeout" : HTTP_STATUS.BAD_GATEWAY;
+        if (await tryRetry(urlIndex, retryKey, `network "${error.message}"`)) {
           forceFreshSocketByUrl[urlIndex] = true;
           urlIndex--;
           continue;

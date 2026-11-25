@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   handleChat: vi.fn(),
@@ -285,5 +285,94 @@ describe("Gemini native v1beta endpoint", () => {
 
     expect(mocks.handleChat).toHaveBeenCalledTimes(1);
     expect(global.fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("v1beta streams held while the response is not ready", () => {
+  const streamRequest = () => makeGeminiRequest("gemini-4-neon:streamGenerateContent?alt=sse", { contents: [{ parts: [{ text: "hi" }] }] });
+  const params = { params: Promise.resolve({ path: ["gemini-4-neon:streamGenerateContent"] }) };
+  const sse = (text) => new Response(text, { status: 200, headers: { "Content-Type": "text/event-stream" } });
+  const deferred = () => {
+    let resolve;
+    const promise = new Promise((r) => { resolve = r; });
+    return { promise, resolve };
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("passes a stream that is ready in time through untouched", async () => {
+    const upstream = sse('data: {"candidates":[{"content":{"parts":[{"text":"fast"}]}}]}\n\n');
+    mocks.handleChat.mockResolvedValue(upstream);
+
+    const response = await POST(streamRequest(), params);
+
+    expect(response).toBe(upstream);
+  });
+
+  it("answers 200 at once, sends empty chunks while waiting, then the real stream", async () => {
+    const chat = deferred();
+    mocks.handleChat.mockReturnValue(chat.promise);
+
+    const pending = POST(streamRequest(), params);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const response = await pending;
+    expect(response.status).toBe(200);
+    expect(response.headers.get("content-type")).toBe("text/event-stream");
+
+    await vi.advanceTimersByTimeAsync(30_000);
+    chat.resolve(sse('data: {"candidates":[{"content":{"parts":[{"text":"slow"}]}}]}\n\n'));
+
+    expect(await response.text()).toBe(
+      'data: {"candidates":[]}\n\n'.repeat(3)
+      + 'data: {"candidates":[{"content":{"parts":[{"text":"slow"}]}}]}\n\n'
+    );
+  });
+
+  it("turns an error that comes after the 200 into a Gemini error frame", async () => {
+    const chat = deferred();
+    mocks.handleChat.mockReturnValue(chat.promise);
+
+    const pending = POST(streamRequest(), params);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const response = await pending;
+    chat.resolve(Response.json({ error: { message: "[gemini/gemini-4-neon] fetch connect timeout" } }, { status: 503 }));
+
+    expect(await response.text()).toBe(
+      'data: {"candidates":[]}\n\n'
+      + 'data: {"error":{"code":503,"message":"[gemini/gemini-4-neon] fetch connect timeout","status":"UNAVAILABLE"}}\n\n'
+    );
+  });
+
+  it("sends a late JSON body as a single chunk", async () => {
+    const chat = deferred();
+    mocks.handleChat.mockReturnValue(chat.promise);
+
+    const pending = POST(streamRequest(), params);
+    await vi.advanceTimersByTimeAsync(10_000);
+    const response = await pending;
+    chat.resolve(Response.json({ candidates: [{ content: { parts: [{ text: "json" }] } }] }));
+
+    expect(await response.text()).toBe(
+      'data: {"candidates":[]}\n\n'
+      + 'data: {"candidates":[{"content":{"parts":[{"text":"json"}]}}]}\n\n'
+    );
+  });
+
+  it("never holds :generateContent", async () => {
+    const chat = deferred();
+    mocks.handleChat.mockReturnValue(chat.promise);
+
+    const pending = POST(makeGeminiRequest("gemini-4-neon:generateContent", { contents: [{ parts: [{ text: "hi" }] }] }), {
+      params: Promise.resolve({ path: ["gemini-4-neon:generateContent"] }),
+    });
+    await vi.advanceTimersByTimeAsync(60_000);
+    const upstream = Response.json({ candidates: [] });
+    chat.resolve(upstream);
+
+    expect(await pending).toBe(upstream);
   });
 });

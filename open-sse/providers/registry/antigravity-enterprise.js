@@ -1,4 +1,4 @@
-import { ANTIGRAVITY_ENTERPRISE_OAUTH_CLIENT } from "../shared.js";
+import { ANTIGRAVITY_ENTERPRISE_OAUTH_CLIENT, GOOGLE_SLOW_HEADERS } from "../shared.js";
 
 const antigravityEnterprise = {
   id: "antigravity-enterprise",
@@ -29,7 +29,9 @@ const antigravityEnterprise = {
       "503": {
         attempts: 3,
       },
+      ...GOOGLE_SLOW_HEADERS.retry,
     },
+    timeoutMs: GOOGLE_SLOW_HEADERS.timeoutMs,
     usage: {
       tokenUrl: "https://oauth2.googleapis.com/token",
     },

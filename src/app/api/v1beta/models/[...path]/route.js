@@ -8,7 +8,12 @@ import {
 import { extractApiKey } from "@/sse/services/clientKey.js";
 import { getSettings } from "@/lib/localDb";
 import { PROVIDER_MODELS } from "@/shared/constants/models";
-import { GEMINI_NATIVE_TTS_FETCH_TIMEOUT_MS } from "open-sse/config/runtimeConfig.js";
+import {
+  GEMINI_NATIVE_TTS_FETCH_TIMEOUT_MS,
+  GEMINI_STREAM_HOLD_AFTER_MS,
+  GEMINI_STREAM_KEEPALIVE_MS,
+} from "open-sse/config/runtimeConfig.js";
+import { SSE_HEADERS_CORS } from "open-sse/utils/sseConstants.js";
 import { initTranslators } from "open-sse/translator/index.js";
 import { getKeyAccessContext, enforceKeyAccessResolved } from "@/sse/services/keyAccess.js";
 
@@ -91,12 +96,13 @@ export async function POST(request, { params }) {
     // default to SSE, so a :generateContent call asks for JSON through Accept.
     const headers = new Headers(request.headers);
     if (action === ":generateContent") headers.set("accept", "application/json");
-    return await handleChat(new Request(request.url, {
+    const chat = handleChat(new Request(request.url, {
       method: "POST",
       headers,
       body: JSON.stringify({ ...body, model }),
       signal: request.signal,
     }));
+    return action === ":streamGenerateContent" ? await holdGeminiStream(chat) : await chat;
   } catch (error) {
     console.log("Error handling Gemini request:", error);
     return Response.json(
@@ -104,6 +110,107 @@ export async function POST(request, { params }) {
       { status: 500 }
     );
   }
+}
+
+// Gemini clients (agy, the genai SDKs) give up on a request whose response headers take over
+// ~60s, which a large agent context on a Google backend (or a combo falling over to its next
+// model) easily needs. A stream not ready after GEMINI_STREAM_HOLD_AFTER_MS is answered at once:
+// status 200, then an empty chunk every GEMINI_STREAM_KEEPALIVE_MS until the response arrives.
+// The empty chunk is a valid GenerateContentResponse; an SSE comment is not (agy rejects it).
+// An error that comes after the 200 is sent as Google's error frame, which these clients raise
+// (and retry when the status is retryable) like an error status.
+const GEMINI_EMPTY_CHUNK = 'data: {"candidates":[]}\n\n';
+const GEMINI_ERROR_STATUS = {
+  400: "INVALID_ARGUMENT",
+  401: "UNAUTHENTICATED",
+  403: "PERMISSION_DENIED",
+  404: "NOT_FOUND",
+  429: "RESOURCE_EXHAUSTED",
+  499: "CANCELLED",
+  501: "UNIMPLEMENTED",
+  503: "UNAVAILABLE",
+  504: "DEADLINE_EXCEEDED",
+};
+
+async function holdGeminiStream(pending) {
+  let timer;
+  const held = Symbol("held");
+  const first = await Promise.race([
+    pending,
+    new Promise((resolve) => { timer = setTimeout(resolve, GEMINI_STREAM_HOLD_AFTER_MS, held); }),
+  ]);
+  clearTimeout(timer);
+  if (first !== held) return first;
+
+  const encoder = new TextEncoder();
+  let keepalive;
+  let reader;
+  let cancelled = false;
+  const body = new ReadableStream({
+    async start(controller) {
+      const send = (text) => controller.enqueue(encoder.encode(text));
+      send(GEMINI_EMPTY_CHUNK);
+      keepalive = setInterval(() => send(GEMINI_EMPTY_CHUNK), GEMINI_STREAM_KEEPALIVE_MS);
+      let response;
+      try {
+        response = await pending;
+      } catch (error) {
+        response = Response.json({ error: { message: error.message } }, { status: 500 });
+      } finally {
+        clearInterval(keepalive);
+      }
+      if (cancelled) {
+        await response.body?.cancel();
+        return;
+      }
+      if (!response.ok) {
+        send(`data: ${JSON.stringify(await geminiErrorFrame(response))}\n\n`);
+        controller.close();
+        return;
+      }
+      if (!(response.headers.get("content-type") || "").includes("text/event-stream")) {
+        // A JSON GenerateContentResponse is also a valid single chunk.
+        send(`data: ${JSON.stringify(await response.json())}\n\n`);
+        controller.close();
+        return;
+      }
+      reader = response.body.getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          controller.enqueue(value);
+        }
+        controller.close();
+      } catch (error) {
+        if (!cancelled) controller.error(error);
+      }
+    },
+    cancel(reason) {
+      cancelled = true;
+      clearInterval(keepalive);
+      return reader?.cancel(reason);
+    },
+  });
+  return new Response(body, { status: 200, headers: SSE_HEADERS_CORS });
+}
+
+async function geminiErrorFrame(response) {
+  const text = await response.text();
+  let message = text;
+  try {
+    message = JSON.parse(text)?.error?.message || text;
+  } catch {
+    // not JSON: the text is the message
+  }
+  const code = response.status;
+  return {
+    error: {
+      code,
+      message: message || `HTTP ${code}`,
+      status: GEMINI_ERROR_STATUS[code] || (code >= 500 ? "UNAVAILABLE" : "FAILED_PRECONDITION"),
+    },
+  };
 }
 
 function normalizeGeminiNativeModel(model) {
